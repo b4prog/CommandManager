@@ -2,7 +2,7 @@
 import Darwin
 import Foundation
 
-let commandManagerVersion = "0.1"
+let commandManagerVersion = "0.2"
 
 struct CommandError: Error, CustomStringConvertible {
     let description: String
@@ -11,6 +11,35 @@ struct CommandError: Error, CustomStringConvertible {
     init(_ message: String, status: Int32 = 1) {
         description = message
         self.status = status
+    }
+}
+
+struct Version: Comparable {
+    private let components: [UInt]
+
+    init(_ text: String) throws {
+        let parts = text.split(separator: ".", omittingEmptySubsequences: false)
+        let numbers = parts.compactMap { UInt($0) }
+        guard text.range(of: "\\A[0-9]+\\.[0-9]+(?:\\.[0-9]+)?\\z", options: .regularExpression) != nil,
+            numbers.count == parts.count
+        else {
+            throw CommandError(
+                "Invalid version '\(text)'; expected major.minor or major.minor.patch using nonnegative integers.")
+        }
+        components = numbers + Array(repeating: 0, count: 3 - numbers.count)
+    }
+
+    static func < (lhs: Version, rhs: Version) -> Bool {
+        lhs.components.lexicographicallyPrecedes(rhs.components)
+    }
+}
+
+func validateMinimumVersion(_ minimum: String?) throws {
+    guard let minimum else { return }
+    guard try Version(commandManagerVersion) >= Version(minimum) else {
+        throw CommandError(
+            "This configuration requires CommandManager \(minimum) or later; installed version is \(commandManagerVersion). Upgrade cm before using this configuration."
+        )
     }
 }
 
@@ -47,6 +76,10 @@ func rejectUnknownKeys(_ decoder: Decoder, allowed: Set<String>) throws {
 
 func isIdentifier(_ value: String) -> Bool {
     value.range(of: "\\A[A-Za-z_][A-Za-z0-9_]*\\z", options: .regularExpression) != nil
+}
+
+func isFunctionName(_ value: String) -> Bool {
+    value.range(of: "\\A[A-Za-z_][A-Za-z0-9_-]*\\z", options: .regularExpression) != nil
 }
 
 struct FunctionDefinition: Decodable {
@@ -176,12 +209,13 @@ struct Configuration: Decodable {
     let functions: [String: FunctionDefinition]
 
     enum CodingKeys: String, CodingKey {
-        case functions
+        case minimumVersion, functions
     }
 
     init(from decoder: Decoder) throws {
-        try rejectUnknownKeys(decoder, allowed: ["functions"])
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        try validateMinimumVersion(container.decodeIfDefined(String.self, forKey: .minimumVersion))
+        try rejectUnknownKeys(decoder, allowed: ["minimumVersion", "functions"])
         functions = try container.decode([String: FunctionDefinition].self, forKey: .functions)
     }
 
@@ -198,9 +232,9 @@ struct Configuration: Decodable {
     }
 
     private func validateDefinition(_ name: String, function: FunctionDefinition) throws {
-        guard isIdentifier(name) else {
+        guard isFunctionName(name) else {
             throw CommandError(
-                "Invalid function name '\(name)'; use letters, digits, and underscores, starting with a letter or underscore."
+                "Invalid function name '\(name)'; use letters, digits, underscores, and hyphens, starting with a letter or underscore."
             )
         }
         guard !function.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -381,7 +415,7 @@ struct Runner {
 
 func printCommand(_ executable: String, arguments: [String]) {
     let command = ([executable] + arguments).map(quoteArgument).joined(separator: " ")
-    FileHandle.standardOutput.write(Data("\u{1B}[32m> \(command)\u{1B}[0m\n".utf8))
+    FileHandle.standardOutput.write(Data("\u{1B}[90m❯ \u{1B}[32m\(command)\u{1B}[0m\n".utf8))
 }
 
 func quoteArgument(_ argument: String) -> String {

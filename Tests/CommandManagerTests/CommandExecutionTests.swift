@@ -12,7 +12,7 @@ final class CommandExecutionTests: CMTestCase {
         for arguments in invocations {
             let result = try runCM(arguments)
             assertSuccess(result)
-            #expect(result.stdout.hasPrefix("CommandManager 0.1 —"))
+            #expect(result.stdout.hasPrefix("CommandManager 0.2 —"))
             let alpha = try #require(result.stdout.range(of: "Alpha"))
             let zulu = try #require(result.stdout.range(of: "Zulu"))
             #expect(alpha.lowerBound < zulu.lowerBound)
@@ -47,7 +47,7 @@ final class CommandExecutionTests: CMTestCase {
     func testMissingDefaultConfigurationExplainsSetup() throws {
         let result = try runCM(useConfig: false)
         let output = result.stdout + result.stderr
-        #expect(result.stdout.hasPrefix("CommandManager 0.1 —"))
+        #expect(result.stdout.hasPrefix("CommandManager 0.2 —"))
         #expect(output.contains("cm.json"))
         #expect(output.contains("Application Support"))
         #expect(!(output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
@@ -96,12 +96,12 @@ final class CommandExecutionTests: CMTestCase {
         assertSuccess(try runCM(["main", "hello"]), output: "prefix-hello-suffix $ ${literal}\n")
     }
 
-    @Test func testCommandsAreEchoedInGreenBeforeTheirOutput() throws {
+    @Test func testCommandsAreEchoedInGreenWithAGreyChevronBeforeTheirOutput() throws {
         try configure(["main": function([printStep("${value}")], parameters: ["value"])])
         for value in ["plain", "", "two words", "it's quoted", "a\"b", "first\nsecond"] {
             let result = try runCM(["main", value])
             assertSuccess(result, output: value + "\n")
-            let prefix = "\u{1B}[32m> "
+            let prefix = "\u{1B}[90m❯ \u{1B}[32m"
             let beginning = try #require(result.stdout.range(of: prefix, options: .anchored))
             let reset = try #require(result.stdout.range(of: "\u{1B}[0m\n"))
             let command = String(result.stdout[beginning.upperBound..<reset.lowerBound])
@@ -118,7 +118,7 @@ final class CommandExecutionTests: CMTestCase {
         ])
         let result = try runCM(["main"])
         assertSuccess(result, output: "first\nsecond\n")
-        #expect(result.stdout.components(separatedBy: "\u{1B}[32m> ").count - 1 == 2)
+        #expect(result.stdout.components(separatedBy: "\u{1B}[90m❯ \u{1B}[32m").count - 1 == 2)
     }
 
     @Test func testNestedFunctionsReceiveTheirOwnArguments() throws {
@@ -154,7 +154,7 @@ final class CommandExecutionTests: CMTestCase {
         ])
         let result = try runCM(["main"])
         #expect(result.status == 23)
-        #expect(result.stdout.components(separatedBy: "\u{1B}[32m> ").count - 1 == 1)
+        #expect(result.stdout.components(separatedBy: "\u{1B}[90m❯ \u{1B}[32m").count - 1 == 1)
         #expect(result.stdout.contains("exit 23"))
         #expect(!(FileManager.default.fileExists(atPath: marker.path)))
     }
@@ -202,6 +202,39 @@ final class CommandExecutionTests: CMTestCase {
             try configure(["main": function([["command": command]])])
             assertSuccess(try runCM(["main"], environment: environment), output: "custom output\n")
         }
+    }
+
+    @Test func testHyphenatedEntryPointsAndHelperNames() throws {
+        try configure([
+            "brew-update": function([["function": "print-message", "args": ["${value}"]]], parameters: ["value"]),
+            "print-message": function([printStep("${message}")], parameters: ["message"], entry: false),
+        ])
+        let help = try runCM()
+        assertSuccess(help)
+        #expect(help.stdout.contains("brew-update <value>"))
+        #expect(!help.stdout.contains("print-message"))
+        let functionHelp = try runCM(["--help", "brew-update"])
+        assertSuccess(functionHelp)
+        #expect(functionHelp.stdout.contains("Usage: cm brew-update <value>"))
+        assertSuccess(try runCM(["brew-update", "updated"]), output: "updated\n")
+    }
+
+    @Test func testHyphenatedEntryPointRunsCommandsInOrder() throws {
+        try configure([
+            "brew-update": function([
+                ["command": "brew", "args": ["update"]],
+                ["command": "brew", "args": ["upgrade", "--greedy"]],
+                ["command": "brew", "args": ["cleanup", "-s"]],
+            ])
+        ])
+        let brew = directory.appendingPathComponent("brew")
+        try "#!/bin/sh\nprintf '%s\\n' \"$*\"\n".write(to: brew, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: brew.path)
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = directory.path
+        let result = try runCM(["brew-update"], environment: environment)
+        assertSuccess(result, output: "update\nupgrade --greedy\ncleanup -s\n")
+        #expect(result.stdout.components(separatedBy: "\u{1B}[90m❯ \u{1B}[32mbrew ").count - 1 == 3)
     }
 
     private func parseEchoedCommand(_ command: String) throws -> [String] {
