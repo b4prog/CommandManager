@@ -64,6 +64,19 @@ cm --config ./examples/cm.json Hello Bruno
 
 An explicitly selected configuration must exist. Relative configuration paths are resolved from the directory where `cm` starts.
 
+### Minimum required version
+
+The optional root-level `minimumVersion` field specifies the oldest compatible CommandManager version:
+
+```json
+{
+  "minimumVersion": "0.2",
+  "functions": {}
+}
+```
+
+Use a string in `major.minor` or `major.minor.patch` form, with nonnegative integer components. Versions are compared numerically: `0.10` is newer than `0.2`, and `0.2` equals `0.2.0`. Prerelease and build suffixes are not supported. If the requirement exceeds the running version, `cm` reports the required and installed versions and exits before executing any commands, including when help is requested. Omitting the field keeps existing configurations valid; an explicit `null` or a malformed version is an error.
+
 ## Quick start
 
 The example configuration defines three entry points:
@@ -75,7 +88,7 @@ cm GitStatus
 cm CheckPackage CommandManager
 ```
 
-- `cm` shows the current version (`0.1`) and lists the available entry points and their descriptions.
+- `cm` shows the current version (`0.2`) and lists the available entry points and their descriptions.
 - `Hello` prints a greeting using a required `name` argument.
 - `GitStatus` prints a short Git status when run inside a Git working tree.
 - `CheckPackage` enters the named folder, verifies that it is a Git repository root, then builds and tests its Swift package. Run it from the named folder itself or its immediate parent.
@@ -133,7 +146,7 @@ The root object contains a `functions` object. Its keys are the function names:
 | `parameters` | No | Ordered names of required positional arguments. Defaults to `[]`. |
 | `steps` | Yes | Steps to run in order. |
 
-Function names and parameter names use letters, digits, and underscores and must start with a letter or underscore: `[A-Za-z_][A-Za-z0-9_]*`. Parameter names must be unique within a function.
+Function names allow letters, digits, underscores, and hyphens, starting with a letter or underscore: `[A-Za-z_][A-Za-z0-9_-]*`. For example, `brew-update` is a valid entry point or helper name. Parameter names use `[A-Za-z_][A-Za-z0-9_]*` and must be unique within a function; hyphens are allowed only in function names.
 
 An entry point can call other entry points or internal functions. A function without `"entryPoint": true` is internal: it cannot be invoked directly with `cm` and is omitted from the entry point list. This separates the public commands you use from the helpers they share.
 
@@ -154,7 +167,9 @@ Every step has exactly one of `command`, `function`, or `builtin`, plus an optio
 
 Executables are resolved using `PATH`, or you can specify an executable path. Commands inherit the environment and standard input, output, and error streams. Each command runs in the entry point's current working directory, shared across its function calls.
 
-Before each configured command runs, CommandManager writes its executable and expanded arguments to standard output, prefixed with `> ` and colored green. Arguments are displayed with shell-style quoting when needed, including empty values, spaces, and special characters. For example, the greeting command for `cm Hello "Bruno Smith"` shows the expanded name as `'Bruno Smith'`. These echoes, including their ANSI color sequences, are also present when output is redirected. Internal Git checks performed by built-ins are not echoed.
+Interactive commands share the terminal's foreground process group with `cm`, so confirmation prompts can read your input normally. Terminal signals such as Ctrl+C reach the command as well as `cm`.
+
+Before each configured command runs, CommandManager writes a grey `❯ ` prefix followed by its executable and expanded arguments in green to standard output. The color resets before the command's own output. Arguments are displayed with shell-style quoting when needed, including empty values, spaces, and special characters. For example, the greeting command for `cm Hello "Bruno Smith"` shows the expanded name as `'Bruno Smith'`. These echoes, including their ANSI color sequences, are also present when output is redirected. Internal Git checks performed by built-ins are not echoed.
 
 Arguments are passed directly to the executable. Spaces, `*`, `~`, pipes, redirection, and environment variable syntax have no special shell meaning. For example, `"args": ["*.swift"]` passes one literal argument, and `"args": ["~/Downloads"]` does not expand to your home directory. JSON still requires its own escaping, such as `\n` for a newline.
 

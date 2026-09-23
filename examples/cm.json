@@ -1,4 +1,5 @@
 {
+  "minimumVersion": "0.2",
   "functions": {
     "Hello": {
       "description": "Print a greeting.",

@@ -14,7 +14,7 @@ struct CommandResult {
 
     var outputWithoutEcho: String {
         let expression = try! NSRegularExpression(
-            pattern: "\u{1B}\\[32m> .*?\u{1B}\\[0m\\n", options: .dotMatchesLineSeparators)
+            pattern: "\u{1B}\\[90m❯ \u{1B}\\[32m.*?\u{1B}\\[0m\\n", options: .dotMatchesLineSeparators)
         let range = NSRange(stdout.startIndex..<stdout.endIndex, in: stdout)
         return expression.stringByReplacingMatches(in: stdout, range: range, withTemplate: "")
     }
