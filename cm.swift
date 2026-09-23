@@ -367,14 +367,8 @@ struct Runner {
 
     private func executeCommand(_ executable: String, arguments: [String], directory: URL) throws {
         printCommand(executable, arguments: arguments)
-        let process = try makeProcess(executable, arguments: arguments, directory: directory)
-        process.standardInput = FileHandle.standardInput
-        process.standardOutput = FileHandle.standardOutput
-        process.standardError = FileHandle.standardError
-        try start(process, executable: executable)
-        process.waitUntilExit()
-        guard process.terminationReason == .exit, process.terminationStatus == 0 else {
-            let status = exitStatus(process)
+        let status = try runInheritedCommand(executable, arguments: arguments, directory: directory)
+        guard status == 0 else {
             throw CommandError("Command '\(executable)' failed with exit status \(status).", status: status)
         }
     }
@@ -440,8 +434,64 @@ func quoteControlCharacter(_ character: Unicode.Scalar) -> String {
     }
 }
 
-func exitStatus(_ process: Process) -> Int32 {
-    process.terminationReason == .uncaughtSignal ? min(128 + process.terminationStatus, 255) : process.terminationStatus
+/// Inherit the caller's process group so terminal reads and terminal signals work normally.
+func runInheritedCommand(_ executable: String, arguments: [String], directory: URL) throws -> Int32 {
+    try validateProcessArguments([executable] + arguments)
+    let path = try executableURL(executable, directory: directory).path
+    var actions: posix_spawn_file_actions_t?
+    try checkSpawn(posix_spawn_file_actions_init(&actions), executable: executable)
+    defer { posix_spawn_file_actions_destroy(&actions) }
+    try checkSpawn(addWorkingDirectory(&actions, path: directory.path), executable: executable)
+    var pid: pid_t = 0
+    try withCStringArray([executable] + arguments) { argv in
+        try withCStringArray(ProcessInfo.processInfo.environment.map { "\($0.key)=\($0.value)" }) { environment in
+            // No SETPGROUP flag: unlike Foundation.Process, keep the existing foreground job.
+            try checkSpawn(posix_spawn(&pid, path, &actions, nil, argv, environment), executable: executable)
+        }
+    }
+    return try waitForCommand(pid)
+}
+
+func addWorkingDirectory(_ actions: inout posix_spawn_file_actions_t?, path: String) -> Int32 {
+    #if compiler(>=6.2)
+        if #available(macOS 26.0, *) {
+            return posix_spawn_file_actions_addchdir(&actions, path)
+        } else {
+            return posix_spawn_file_actions_addchdir_np(&actions, path)
+        }
+    #else
+        return posix_spawn_file_actions_addchdir_np(&actions, path)
+    #endif
+}
+
+func withCStringArray<Result>(
+    _ strings: [String], body: (UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>) throws -> Result
+) throws -> Result {
+    var pointers = strings.map { strdup($0) }
+    defer {
+        for pointer in pointers { free(pointer) }
+    }
+    guard pointers.allSatisfy({ $0 != nil }) else { throw CommandError("Cannot allocate command arguments.") }
+    pointers.append(nil)
+    return try pointers.withUnsafeMutableBufferPointer { try body($0.baseAddress!) }
+}
+
+func checkSpawn(_ status: Int32, executable: String) throws {
+    guard status == 0 else {
+        throw CommandError("Cannot run command '\(executable)': \(String(cString: strerror(status)))", status: 126)
+    }
+}
+
+func waitForCommand(_ pid: pid_t) throws -> Int32 {
+    var status: Int32 = 0
+    while waitpid(pid, &status, 0) == -1 {
+        guard errno == EINTR else {
+            throw CommandError("Cannot wait for command: \(String(cString: strerror(errno)))")
+        }
+    }
+    // Darwin's wait status macros are not imported into Swift.
+    let signal = status & 0x7f
+    return signal == 0 ? (status >> 8) & 0xff : min(128 + signal, 255)
 }
 
 func makeProcess(_ executable: String, arguments: [String], directory: URL) throws -> Process {

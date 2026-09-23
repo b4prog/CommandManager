@@ -167,6 +167,8 @@ Every step has exactly one of `command`, `function`, or `builtin`, plus an optio
 
 Executables are resolved using `PATH`, or you can specify an executable path. Commands inherit the environment and standard input, output, and error streams. Each command runs in the entry point's current working directory, shared across its function calls.
 
+Interactive commands share the terminal's foreground process group with `cm`, so confirmation prompts can read your input normally. Terminal signals such as Ctrl+C reach the command as well as `cm`.
+
 Before each configured command runs, CommandManager writes a grey `❯ ` prefix followed by its executable and expanded arguments in green to standard output. The color resets before the command's own output. Arguments are displayed with shell-style quoting when needed, including empty values, spaces, and special characters. For example, the greeting command for `cm Hello "Bruno Smith"` shows the expanded name as `'Bruno Smith'`. These echoes, including their ANSI color sequences, are also present when output is redirected. Internal Git checks performed by built-ins are not echoed.
 
 Arguments are passed directly to the executable. Spaces, `*`, `~`, pipes, redirection, and environment variable syntax have no special shell meaning. For example, `"args": ["*.swift"]` passes one literal argument, and `"args": ["~/Downloads"]` does not expand to your home directory. JSON still requires its own escaping, such as `\n` for a newline.
