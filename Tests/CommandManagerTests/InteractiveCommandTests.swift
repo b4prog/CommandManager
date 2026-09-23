@@ -7,9 +7,12 @@ final class InteractiveCommandTests: CMTestCase {
         let command = directory.appendingPathComponent("prompt.sh")
         try """
         #!/bin/sh
-        group=$(/bin/ps -o pgid= -p $$)
-        foreground=$(/bin/ps -o tpgid= -p $$)
-        [ "$group" = "$foreground" ] || { echo WRONG_PROCESS_GROUP; exit 42; }
+        group=$(/bin/ps -o pgid= -p $$) || exit 41
+        foreground=$(/bin/ps -o tpgid= -p $$) || exit 41
+        if ! [ "$group" -gt 0 ] || ! [ "$group" -eq "$foreground" ]; then
+            printf 'WRONG_PROCESS_GROUP: group=<%s> foreground=<%s>\\n' "$group" "$foreground"
+            exit 42
+        fi
         printf 'CONFIRM [y/n]: '
         read answer
         [ "$answer" = y ] || exit 23
