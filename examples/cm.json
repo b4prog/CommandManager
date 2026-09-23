@@ -1,0 +1,58 @@
+{
+  "functions": {
+    "Hello": {
+      "description": "Print a greeting.",
+      "entryPoint": true,
+      "parameters": ["name"],
+      "steps": [
+        {
+          "command": "/usr/bin/printf",
+          "args": ["Hello, %s!\n", "${name}"]
+        }
+      ]
+    },
+    "GitStatus": {
+      "description": "Show a short status from anywhere in a Git working tree.",
+      "entryPoint": true,
+      "steps": [
+        {
+          "builtin": "assertGitRepository"
+        },
+        {
+          "command": "git",
+          "args": ["status", "--short"]
+        }
+      ]
+    },
+    "CheckPackage": {
+      "description": "Build and test the named Swift package at its Git root.",
+      "entryPoint": true,
+      "parameters": ["folder"],
+      "steps": [
+        {
+          "builtin": "inFolder",
+          "args": ["${folder}"]
+        },
+        {
+          "builtin": "assertGitRoot"
+        },
+        {
+          "function": "BuildAndTest"
+        }
+      ]
+    },
+    "BuildAndTest": {
+      "description": "Build and test the Swift package in the current directory.",
+      "steps": [
+        {
+          "command": "swift",
+          "args": ["build"]
+        },
+        {
+          "command": "swift",
+          "args": ["test"]
+        }
+      ]
+    }
+  }
+}
