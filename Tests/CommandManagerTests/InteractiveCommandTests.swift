@@ -73,7 +73,7 @@ final class InteractiveCommandTests: CMTestCase {
         try process.run()
         let deadline = Date().addingTimeInterval(5)
         while process.isRunning && Date() < deadline {
-            let text = try String(contentsOf: outputURL, encoding: .utf8)
+            let text = String(decoding: try Data(contentsOf: outputURL), as: UTF8.self)
             if text.contains("CONFIRM [y/n]: ") { break }
             Thread.sleep(forTimeInterval: 0.01)
         }
@@ -103,7 +103,7 @@ final class InteractiveCommandTests: CMTestCase {
         try process.run()
         let deadline = Date().addingTimeInterval(5)
         while process.isRunning && Date() < deadline {
-            let text = try String(contentsOf: outputURL, encoding: .utf8)
+            let text = String(decoding: try Data(contentsOf: outputURL), as: UTF8.self)
             if text.contains("READY") { break }
             Thread.sleep(forTimeInterval: 0.01)
         }
