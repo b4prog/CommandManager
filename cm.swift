@@ -443,10 +443,26 @@ func runInheritedCommand(_ executable: String, arguments: [String], directory: U
     defer { posix_spawn_file_actions_destroy(&actions) }
     try checkSpawn(addWorkingDirectory(&actions, path: directory.path), executable: executable)
     var pid: pid_t = 0
+    var attributes: posix_spawnattr_t?
+    try checkSpawn(posix_spawnattr_init(&attributes), executable: executable)
+    defer { posix_spawnattr_destroy(&attributes) }
+    var defaults = sigset_t()
+    sigemptyset(&defaults)
+    sigaddset(&defaults, SIGINT)
+    sigaddset(&defaults, SIGQUIT)
+    try checkSpawn(posix_spawnattr_setsigdefault(&attributes, &defaults), executable: executable)
+    try checkSpawn(posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETSIGDEF)), executable: executable)
+    // Like system(3): let the foreground child handle terminal interrupts while cm waits.
+    let previousInterrupt = signal(SIGINT, SIG_IGN)
+    let previousQuit = signal(SIGQUIT, SIG_IGN)
+    defer {
+        signal(SIGINT, previousInterrupt)
+        signal(SIGQUIT, previousQuit)
+    }
     try withCStringArray([executable] + arguments) { argv in
         try withCStringArray(ProcessInfo.processInfo.environment.map { "\($0.key)=\($0.value)" }) { environment in
             // No SETPGROUP flag: unlike Foundation.Process, keep the existing foreground job.
-            try checkSpawn(posix_spawn(&pid, path, &actions, nil, argv, environment), executable: executable)
+            try checkSpawn(posix_spawn(&pid, path, &actions, &attributes, argv, environment), executable: executable)
         }
     }
     return try waitForCommand(pid)

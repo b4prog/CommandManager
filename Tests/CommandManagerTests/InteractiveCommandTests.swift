@@ -42,6 +42,18 @@ final class InteractiveCommandTests: CMTestCase {
         #expect(!FileManager.default.fileExists(atPath: marker.path))
     }
 
+    @Test func testTerminalInterruptStopsCommandAndPreservesStatus() throws {
+        try configure([
+            "main": function([
+                ["command": "/bin/sh", "args": ["-c", "echo READY; sleep 30"]],
+                markerStep(),
+            ])
+        ])
+        let status = try interruptTerminalCommand()
+        #expect(status == 130)
+        #expect(!FileManager.default.fileExists(atPath: marker.path))
+    }
+
     private func runTerminalPrompt() throws -> String {
         let outputURL = directory.appendingPathComponent("terminal-output")
         try Data().write(to: outputURL)
@@ -70,5 +82,35 @@ final class InteractiveCommandTests: CMTestCase {
         try input.fileHandleForWriting.write(contentsOf: Data("y\n".utf8))
         try waitForProcess(process, timeout: 5)
         return try String(contentsOf: outputURL, encoding: .utf8)
+    }
+
+    private func interruptTerminalCommand() throws -> Int32 {
+        let outputURL = directory.appendingPathComponent("terminal-output")
+        try Data().write(to: outputURL)
+        let output = try FileHandle(forWritingTo: outputURL)
+        let input = Pipe()
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/script")
+        process.arguments = ["-q", "-e", "/dev/null", try executableURL().path, "--config", config.path, "main"]
+        process.standardInput = input
+        process.standardOutput = output
+        process.standardError = output
+        defer {
+            if process.isRunning { process.terminate() }
+            try? input.fileHandleForWriting.close()
+            try? output.close()
+        }
+        try process.run()
+        let deadline = Date().addingTimeInterval(5)
+        while process.isRunning && Date() < deadline {
+            let text = try String(contentsOf: outputURL, encoding: .utf8)
+            if text.contains("READY") { break }
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        let promptOutput = try String(contentsOf: outputURL, encoding: .utf8)
+        try #require(promptOutput.contains("READY"), "\(promptOutput)")
+        try input.fileHandleForWriting.write(contentsOf: Data([3]))
+        try waitForProcess(process, timeout: 5)
+        return process.terminationStatus
     }
 }
