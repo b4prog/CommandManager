@@ -339,7 +339,7 @@ Use the same `PREFIX` for uninstalling a custom installation. Uninstall removes 
 
 The [CI workflow](.github/workflows/ci.yml) checks Swift formatting and runs the Swift tests on pull requests and pushes.
 
-[.coderabbit.yaml](.coderabbit.yaml) configures the CodeRabbit GitHub app that already has access to this repository. It enables automatic reviews of non-draft pull requests targeting the default branch, with incremental reviews on new commits, summaries, and review status. Chat replies are enabled.
+[.coderabbit.yaml](.coderabbit.yaml) configures the CodeRabbit GitHub app that already has access to this repository. Reviews run automatically when a pull request is ready for review (not a draft), for every target branch. New pushes receive incremental reviews, and commit-count auto-pausing is disabled. Summaries, review status, and chat replies are enabled.
 
 CodeRabbit can request changes for actionable feedback and approve pull requests once the latest commit has been reviewed, required review threads are resolved, and no Pre-Merge Checks are failing. This is enabled by `reviews.request_changes_workflow: true`.
 
