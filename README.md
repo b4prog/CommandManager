@@ -341,6 +341,8 @@ The [CI workflow](.github/workflows/ci.yml) checks Swift formatting and runs the
 
 [.coderabbit.yaml](.coderabbit.yaml) configures the CodeRabbit GitHub app that already has access to this repository. It enables automatic reviews of non-draft pull requests targeting the default branch, with incremental reviews on new commits, summaries, and review status. Chat replies are enabled.
 
+CodeRabbit can request changes for actionable feedback and approve pull requests once the latest commit has been reviewed, required review threads are resolved, and no Pre-Merge Checks are failing. This is enabled by `reviews.request_changes_workflow: true`.
+
 CodeRabbit reads this configuration directly through its GitHub app, so its review workflow does not need a separate GitHub Actions job or an additional API key. See [CodeRabbit's configuration guide](https://docs.coderabbit.ai/getting-started/yaml-configuration). To request a review manually, comment `@coderabbitai review` on the pull request.
 
 ## License
