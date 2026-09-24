@@ -104,15 +104,20 @@ class CMTestCase {
     }
 
     func function(
-        _ steps: [[String: Any]], parameters: [String] = [], entry: Bool = true,
+        _ steps: [[String: Any]], parameters: [String] = [], settings: [String] = [], entry: Bool = true,
         description: String = "Example function"
     ) -> [String: Any] {
-        ["description": description, "entryPoint": entry, "parameters": parameters, "steps": steps]
+        [
+            "description": description, "entryPoint": entry, "parameters": parameters, "settings": settings,
+            "steps": steps,
+        ]
     }
 
-    func configure(_ functions: [String: [String: Any]]) throws {
-        try JSONSerialization.data(withJSONObject: ["functions": functions], options: .sortedKeys)
-            .write(to: config)
+    func configure(_ functions: [String: [String: Any]], settings: [[String: Any]] = []) throws {
+        try JSONSerialization.data(
+            withJSONObject: ["settings": settings, "functions": functions], options: .sortedKeys
+        )
+        .write(to: config)
     }
 
     func executableURL() throws -> URL {

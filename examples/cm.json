@@ -1,5 +1,11 @@
 {
-  "minimumVersion": "0.2",
+  "minimumVersion": "0.3",
+  "settings": [
+    {
+      "name": "FIGMA_TOKEN",
+      "value": "replace-with-your-token"
+    }
+  ],
   "functions": {
     "Hello": {
       "description": "Print a greeting.",
@@ -9,6 +15,20 @@
         {
           "command": "/usr/bin/printf",
           "args": ["Hello, %s!\n", "${name}"]
+        }
+      ]
+    },
+    "icons-sync": {
+      "description": "Sync Figma icons and generate Unify icons.",
+      "entryPoint": true,
+      "settings": ["FIGMA_TOKEN"],
+      "steps": [
+        {
+          "command": "/bin/zsh",
+          "args": [
+            "-c",
+            "export FIGMA_TOKEN=\"${FIGMA_TOKEN}\" &&\nnode scripts/sync-figma-icons.mjs &&\nnpx nx run unify:generate-unify-icons"
+          ]
         }
       ]
     },

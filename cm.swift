@@ -2,7 +2,7 @@
 import Darwin
 import Foundation
 
-let commandManagerVersion = "0.2"
+let commandManagerVersion = "0.3"
 
 struct CommandError: Error, CustomStringConvertible {
     let description: String
@@ -86,23 +86,41 @@ struct FunctionDefinition: Decodable {
     let description: String
     let entryPoint: Bool
     let parameters: [String]
+    let settings: [String]
     let steps: [Step]
 
     enum CodingKeys: String, CodingKey {
-        case description, entryPoint, parameters, steps
+        case description, entryPoint, parameters, settings, steps
     }
 
     init(from decoder: Decoder) throws {
-        try rejectUnknownKeys(decoder, allowed: ["description", "entryPoint", "parameters", "steps"])
+        try rejectUnknownKeys(decoder, allowed: ["description", "entryPoint", "parameters", "settings", "steps"])
         let container = try decoder.container(keyedBy: CodingKeys.self)
         description = try container.decode(String.self, forKey: .description)
         entryPoint = try container.decodeIfDefined(Bool.self, forKey: .entryPoint) ?? false
         parameters = try container.decodeIfDefined([String].self, forKey: .parameters) ?? []
+        settings = try container.decodeIfDefined([String].self, forKey: .settings) ?? []
         steps = try container.decode([Step].self, forKey: .steps)
     }
 
     var usage: String {
         parameters.map { "<\($0)>" }.joined(separator: " ")
+    }
+}
+
+struct SettingDefinition: Decodable {
+    let name: String
+    let value: String
+
+    enum CodingKeys: String, CodingKey {
+        case name, value
+    }
+
+    init(from decoder: Decoder) throws {
+        try rejectUnknownKeys(decoder, allowed: ["name", "value"])
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decode(String.self, forKey: .name)
+        value = try container.decode(String.self, forKey: .value)
     }
 }
 
@@ -206,20 +224,23 @@ struct ArgumentTemplate {
 }
 
 struct Configuration: Decodable {
+    let settings: [SettingDefinition]
     let functions: [String: FunctionDefinition]
 
     enum CodingKeys: String, CodingKey {
-        case minimumVersion, functions
+        case minimumVersion, settings, functions
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         try validateMinimumVersion(container.decodeIfDefined(String.self, forKey: .minimumVersion))
-        try rejectUnknownKeys(decoder, allowed: ["minimumVersion", "functions"])
+        try rejectUnknownKeys(decoder, allowed: ["minimumVersion", "settings", "functions"])
+        settings = try container.decodeIfDefined([SettingDefinition].self, forKey: .settings) ?? []
         functions = try container.decode([String: FunctionDefinition].self, forKey: .functions)
     }
 
     func validate() throws {
+        try validateSettings()
         for name in functions.keys.sorted() {
             guard let function = functions[name] else { continue }
             try validateDefinition(name, function: function)
@@ -229,6 +250,16 @@ struct Configuration: Decodable {
         for name in functions.keys.sorted() {
             try validateCycles(name, path: [], visited: &visited)
         }
+    }
+
+    private func validateSettings() throws {
+        let names = settings.map(\.name)
+        guard names.allSatisfy(isIdentifier), Set(names).count == names.count else {
+            throw CommandError(
+                "Settings must have unique names using letters, digits, and underscores, starting with a letter or underscore."
+            )
+        }
+        try validateProcessArguments(settings.map(\.value))
     }
 
     private func validateDefinition(_ name: String, function: FunctionDefinition) throws {
@@ -247,6 +278,19 @@ struct Configuration: Decodable {
                 "Function '\(name)' must have unique parameter names using letters, digits, and underscores, starting with a letter or underscore."
             )
         }
+        guard function.settings.allSatisfy(isIdentifier), Set(function.settings).count == function.settings.count else {
+            throw CommandError(
+                "Function '\(name)' must have unique setting names using letters, digits, and underscores, starting with a letter or underscore."
+            )
+        }
+        guard Set(function.parameters).isDisjoint(with: function.settings) else {
+            throw CommandError("Function '\(name)' cannot use the same name for a parameter and a setting.")
+        }
+        let definedSettings = Set(settings.map(\.name))
+        guard Set(function.settings).isSubset(of: definedSettings) else {
+            let unknown = Set(function.settings).subtracting(definedSettings).sorted().joined(separator: ", ")
+            throw CommandError("Function '\(name)' uses unknown setting(s): \(unknown).")
+        }
     }
 
     private func validateSteps(_ name: String, function: FunctionDefinition) throws {
@@ -254,7 +298,7 @@ struct Configuration: Decodable {
             do {
                 try validateTarget(step)
                 for argument in step.args {
-                    try ArgumentTemplate(argument).validate(parameters: Set(function.parameters))
+                    try ArgumentTemplate(argument).validate(parameters: Set(function.parameters + function.settings))
                 }
             } catch {
                 throw CommandError("Function '\(name)', step \(index + 1): \(error)")
@@ -315,6 +359,7 @@ struct Runner {
         }
         try requireArguments(arguments, count: function.parameters.count, target: "Function '\(name)'")
         let values = Dictionary(uniqueKeysWithValues: zip(function.parameters, arguments))
+            .merging(settingValues(for: function), uniquingKeysWith: { _, setting in setting })
         for (index, step) in function.steps.enumerated() {
             do {
                 let args = try step.args.map { try ArgumentTemplate($0).render(values: values) }
@@ -323,6 +368,11 @@ struct Runner {
                 throw CommandError("\(name), step \(index + 1): \(error)", status: error.status)
             }
         }
+    }
+
+    private func settingValues(for function: FunctionDefinition) -> [String: String] {
+        let values = Dictionary(uniqueKeysWithValues: configuration.settings.map { ($0.name, $0.value) })
+        return Dictionary(uniqueKeysWithValues: function.settings.map { ($0, values[$0]!) })
     }
 
     private func execute(_ target: Step.Target, arguments: [String], directory: inout URL) throws {

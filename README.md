@@ -70,7 +70,7 @@ The optional root-level `minimumVersion` field specifies the oldest compatible C
 
 ```json
 {
-  "minimumVersion": "0.2",
+  "minimumVersion": "0.3",
   "functions": {}
 }
 ```
@@ -86,12 +86,14 @@ cm
 cm Hello Bruno
 cm GitStatus
 cm CheckPackage CommandManager
+cm icons-sync
 ```
 
-- `cm` shows the current version (`0.2`) and lists the available entry points and their descriptions.
+- `cm` shows the current version (`0.3`) and lists the available entry points and their descriptions.
 - `Hello` prints a greeting using a required `name` argument.
 - `GitStatus` prints a short Git status when run inside a Git working tree.
 - `CheckPackage` enters the named folder, verifies that it is a Git repository root, then builds and tests its Swift package. Run it from the named folder itself or its immediate parent.
+- `icons-sync` exports the configured Figma token, syncs Figma icons, and generates Unify icons.
 
 This repository includes `Package.swift`, so `cm CheckPackage CommandManager` builds and tests CommandManager. Replace `CommandManager` with another Swift package's folder name to check that package instead.
 
@@ -117,21 +119,27 @@ Names are case sensitive. Functions accept exactly the number of arguments decla
 cm Hello "Bruno Smith"
 ```
 
-## Define functions
+## Define functions and settings
 
-The root object contains a `functions` object. Its keys are the function names:
+The root object contains a `functions` object and can contain a `settings` array. Settings are named string values shared by the configuration, but a function must declare the settings it uses:
 
 ```json
 {
+  "settings": [
+    { "name": "FIGMA_TOKEN", "value": "replace-with-your-token" }
+  ],
   "functions": {
-    "Hello": {
-      "description": "Print a greeting.",
+    "icons-sync": {
+      "description": "Sync Figma icons and generate Unify icons.",
       "entryPoint": true,
-      "parameters": ["name"],
+      "settings": ["FIGMA_TOKEN"],
       "steps": [
         {
-          "command": "/usr/bin/printf",
-          "args": ["Hello, %s!\n", "${name}"]
+          "command": "/bin/zsh",
+          "args": [
+            "-c",
+            "export FIGMA_TOKEN=\"${FIGMA_TOKEN}\" &&\nnode scripts/sync-figma-icons.mjs &&\nnpx nx run unify:generate-unify-icons"
+          ]
         }
       ]
     }
@@ -144,9 +152,12 @@ The root object contains a `functions` object. Its keys are the function names:
 | `description` | Yes | A nonempty description displayed in help. |
 | `entryPoint` | No | `true` allows direct CLI invocation. Defaults to `false`. |
 | `parameters` | No | Ordered names of required positional arguments. Defaults to `[]`. |
+| `settings` | No | Names of root-level settings available to this function. Defaults to `[]`. |
 | `steps` | Yes | Steps to run in order. |
 
-Function names allow letters, digits, underscores, and hyphens, starting with a letter or underscore: `[A-Za-z_][A-Za-z0-9_-]*`. For example, `brew-update` is a valid entry point or helper name. Parameter names use `[A-Za-z_][A-Za-z0-9_]*` and must be unique within a function; hyphens are allowed only in function names.
+Function names allow letters, digits, underscores, and hyphens, starting with a letter or underscore: `[A-Za-z_][A-Za-z0-9_-]*`. For example, `brew-update` is a valid entry point or helper name. Parameter and setting names use `[A-Za-z_][A-Za-z0-9_]*`; each list must be unique, and a function cannot use the same name for a parameter and a setting.
+
+The `icons-sync` example exports `FIGMA_TOKEN` and then runs the icon synchronization and generation commands in the same shell process, so the token is available to both commands. Its `&&` chain stops at the first failure. Settings are substituted exactly like parameters, but only in a function that lists them. Called functions declare their own settings; settings are not inherited from their caller. Store configuration files containing secrets with appropriate filesystem permissions.
 
 An entry point can call other entry points or internal functions. A function without `"entryPoint": true` is internal: it cannot be invoked directly with `cm` and is omitted from the entry point list. This separates the public commands you use from the helpers they share.
 
@@ -230,7 +241,7 @@ Built-ins implement operations that need access to CommandManager's execution st
 
 ## Arguments and substitution
 
-Use `${parameter}` inside any step argument to insert the corresponding function argument. A placeholder can be the whole string or part of it:
+Use `${parameter}` or a declared `${setting}` inside any step argument to insert the corresponding value. A placeholder can be the whole string or part of it:
 
 ```json
 {
@@ -297,7 +308,7 @@ Both assertions ignore `GIT_*` environment overrides for their internal checks, 
 
 ## Validation and failures
 
-CommandManager validates the whole configuration before running any step, including functions that are not entry points. It rejects unknown fields, invalid names and types, explicit `null` values, unknown function or built-in references, incorrect argument counts, unknown parameter references, and recursive call cycles. Executable names and argument strings must not contain NUL characters. Direct recursion and cycles involving several functions are not supported.
+CommandManager validates the whole configuration before running any step, including functions that are not entry points. It rejects unknown fields, invalid names and types, explicit `null` values, duplicate or unknown settings, settings that were not declared by the function using them, unknown function or built-in references, incorrect argument counts, unknown parameter references, and recursive call cycles. Executable names, argument strings, and setting values must not contain NUL characters. Direct recursion and cycles involving several functions are not supported.
 
 Every step must succeed before the next begins. A command with a nonzero exit status aborts the current function and every caller; later steps do not run. CommandManager preserves the failing command's exit status. Configuration errors and built-in failures also exit unsuccessfully with a diagnostic.
 
