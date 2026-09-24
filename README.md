@@ -317,7 +317,7 @@ Both assertions ignore `GIT_*` environment overrides for their internal checks, 
 { "builtin": "export", "args": ["FIGMA_TOKEN", "${FIGMA_TOKEN}"] }
 ```
 
-Sets an environment variable for the remaining steps of the current entry point, including called functions. Subsequent command steps inherit it and run directly without a shell. The variable name must use `[A-Za-z_][A-Za-z0-9_]*`. This changes CommandManager's execution environment only; it cannot modify the terminal process that launched `cm`.
+Sets an environment variable for the remaining steps of the current entry point, including called functions. Subsequent command steps inherit it and run directly without a shell. When the entry point finishes, CommandManager restores the variable's previous value or removes it if it was previously absent. The variable name must use `[A-Za-z_][A-Za-z0-9_]*`. This changes CommandManager's execution environment only; it cannot modify the terminal process that launched `cm`.
 
 ## Validation and failures
 

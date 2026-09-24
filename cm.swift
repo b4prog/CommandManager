@@ -361,6 +361,14 @@ func requireArguments(_ arguments: [String], count: Int, target: String) throws 
 struct Runner {
     let configuration: Configuration
 
+    func runEntryPoint(
+        _ name: String, arguments: [String], directory: inout URL, environment: inout [String: String]
+    ) throws {
+        let initialEnvironment = environment
+        defer { environment = initialEnvironment }
+        try run(name, arguments: arguments, directory: &directory, environment: &environment)
+    }
+
     func run(_ name: String, arguments: [String], directory: inout URL, environment: inout [String: String]) throws {
         guard let function = configuration.functions[name] else {
             throw CommandError("Unknown function '\(name)'.")
@@ -758,7 +766,7 @@ func main(_ arguments: [String]) throws {
     }
     var directory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
     var environment = ProcessInfo.processInfo.environment
-    try Runner(configuration: configuration).run(
+    try Runner(configuration: configuration).runEntryPoint(
         name, arguments: options.arguments, directory: &directory, environment: &environment)
 }
 
