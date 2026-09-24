@@ -46,6 +46,8 @@ final class ConfigurationTests: CMTestCase {
             ["builtin": "inFolder", "args": ["one", "two"]],
             ["builtin": "assertGitRoot", "args": ["one"]],
             ["builtin": "assertGitRepository", "args": ["one"]],
+            ["builtin": "export"],
+            ["builtin": "export", "args": ["VARIABLE"]],
         ]
         for step in invalidSteps {
             try assertInvalidConfiguration([

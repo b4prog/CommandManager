@@ -135,11 +135,16 @@ The root object contains a `functions` object and can contain a `settings` array
       "settings": ["FIGMA_TOKEN"],
       "steps": [
         {
-          "command": "/bin/zsh",
-          "args": [
-            "-c",
-            "export FIGMA_TOKEN=\"${FIGMA_TOKEN}\" &&\nnode scripts/sync-figma-icons.mjs &&\nnpx nx run unify:generate-unify-icons"
-          ]
+          "builtin": "export",
+          "args": ["FIGMA_TOKEN", "${FIGMA_TOKEN}"]
+        },
+        {
+          "command": "node",
+          "args": ["scripts/sync-figma-icons.mjs"]
+        },
+        {
+          "command": "npx",
+          "args": ["nx", "run", "unify:generate-unify-icons"]
         }
       ]
     }
@@ -157,7 +162,7 @@ The root object contains a `functions` object and can contain a `settings` array
 
 Function names allow letters, digits, underscores, and hyphens, starting with a letter or underscore: `[A-Za-z_][A-Za-z0-9_-]*`. For example, `brew-update` is a valid entry point or helper name. Parameter and setting names use `[A-Za-z_][A-Za-z0-9_]*`; each list must be unique, and a function cannot use the same name for a parameter and a setting.
 
-The `icons-sync` example exports `FIGMA_TOKEN` and then runs the icon synchronization and generation commands in the same shell process, so the token is available to both commands. Its `&&` chain stops at the first failure. Settings are substituted exactly like parameters, but only in a function that lists them. Called functions declare their own settings; settings are not inherited from their caller. Store configuration files containing secrets with appropriate filesystem permissions.
+The `icons-sync` example exports `FIGMA_TOKEN` and then runs the icon synchronization and generation commands as separate steps, without invoking a shell. Settings are substituted exactly like parameters, but only in a function that lists them. Called functions declare their own settings; settings are not inherited from their caller. Store configuration files containing secrets with appropriate filesystem permissions.
 
 An entry point can call other entry points or internal functions. A function without `"entryPoint": true` is internal: it cannot be invoked directly with `cm` and is omitted from the entry point list. This separates the public commands you use from the helpers they share.
 
@@ -180,7 +185,7 @@ Executables are resolved using `PATH`, or you can specify an executable path. Co
 
 Interactive commands share the terminal's foreground process group with `cm`, so confirmation prompts can read your input normally. Terminal signals such as Ctrl+C reach the command as well as `cm`.
 
-Before each configured command runs, CommandManager writes a grey `❯ ` prefix followed by its executable and expanded arguments in green to standard output. The color resets before the command's own output. Arguments are displayed with shell-style quoting when needed, including empty values, spaces, and special characters. For example, the greeting command for `cm Hello "Bruno Smith"` shows the expanded name as `'Bruno Smith'`. These echoes, including their ANSI color sequences, are also present when output is redirected. Internal Git checks performed by built-ins are not echoed.
+Before each configured command runs, CommandManager writes a grey `❯ ` prefix followed by its executable and expanded arguments in green to standard output. The color resets before the command's own output. Arguments are displayed with shell-style quoting when needed, including empty values, spaces, and special characters. For example, the greeting command for `cm Hello "Bruno Smith"` shows the expanded name as `'Bruno Smith'`. Every nonempty setting value in a printed command is replaced with `*****`; the command still receives the original value. These echoes, including their ANSI color sequences, are also present when output is redirected. Internal Git checks performed by built-ins are not echoed.
 
 Arguments are passed directly to the executable. Spaces, `*`, `~`, pipes, redirection, and environment variable syntax have no special shell meaning. For example, `"args": ["*.swift"]` passes one literal argument, and `"args": ["~/Downloads"]` does not expand to your home directory. JSON still requires its own escaping, such as `\n` for a newline.
 
@@ -305,6 +310,14 @@ Succeeds only when the current directory is the root of a Git working tree. Use 
 Succeeds at a Git working tree's root or in one of its subdirectories. Both Git assertions reject bare repositories and Git metadata directories such as `.git`, and fail if Git cannot determine a valid working tree.
 
 Both assertions ignore `GIT_*` environment overrides for their internal checks, so they inspect the actual current directory even when invoked from a Git hook or alias. Configured command steps still inherit the full environment.
+
+### `export` — environment-variable name and value
+
+```json
+{ "builtin": "export", "args": ["FIGMA_TOKEN", "${FIGMA_TOKEN}"] }
+```
+
+Sets an environment variable for the remaining steps of the current entry point, including called functions. Subsequent command steps inherit it and run directly without a shell. The variable name must use `[A-Za-z_][A-Za-z0-9_]*`. This changes CommandManager's execution environment only; it cannot modify the terminal process that launched `cm`.
 
 ## Validation and failures
 

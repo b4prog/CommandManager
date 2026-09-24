@@ -158,9 +158,17 @@ enum Builtin: String, CaseIterable {
     case inFolder
     case assertGitRoot
     case assertGitRepository
+    case export
 
     var argumentCount: Int {
-        self == .inFolder ? 1 : 0
+        switch self {
+        case .inFolder:
+            return 1
+        case .export:
+            return 2
+        case .assertGitRoot, .assertGitRepository:
+            return 0
+        }
     }
 }
 
@@ -353,7 +361,7 @@ func requireArguments(_ arguments: [String], count: Int, target: String) throws 
 struct Runner {
     let configuration: Configuration
 
-    func run(_ name: String, arguments: [String], directory: inout URL) throws {
+    func run(_ name: String, arguments: [String], directory: inout URL, environment: inout [String: String]) throws {
         guard let function = configuration.functions[name] else {
             throw CommandError("Unknown function '\(name)'.")
         }
@@ -363,7 +371,7 @@ struct Runner {
         for (index, step) in function.steps.enumerated() {
             do {
                 let args = try step.args.map { try ArgumentTemplate($0).render(values: values) }
-                try execute(step.target, arguments: args, directory: &directory)
+                try execute(step.target, arguments: args, directory: &directory, environment: &environment)
             } catch let error as CommandError {
                 throw CommandError("\(name), step \(index + 1): \(error)", status: error.status)
             }
@@ -375,21 +383,25 @@ struct Runner {
         return Dictionary(uniqueKeysWithValues: function.settings.map { ($0, values[$0]!) })
     }
 
-    private func execute(_ target: Step.Target, arguments: [String], directory: inout URL) throws {
+    private func execute(
+        _ target: Step.Target, arguments: [String], directory: inout URL, environment: inout [String: String]
+    ) throws {
         switch target {
         case .command(let executable):
-            try executeCommand(executable, arguments: arguments, directory: directory)
+            try executeCommand(executable, arguments: arguments, directory: directory, environment: environment)
         case .function(let name):
-            try run(name, arguments: arguments, directory: &directory)
+            try run(name, arguments: arguments, directory: &directory, environment: &environment)
         case .builtin(let name):
             guard let builtin = Builtin(rawValue: name) else {
                 throw CommandError("Unknown builtin '\(name)'.")
             }
-            try executeBuiltin(builtin, arguments: arguments, directory: &directory)
+            try executeBuiltin(builtin, arguments: arguments, directory: &directory, environment: &environment)
         }
     }
 
-    private func executeBuiltin(_ builtin: Builtin, arguments: [String], directory: inout URL) throws {
+    private func executeBuiltin(
+        _ builtin: Builtin, arguments: [String], directory: inout URL, environment: inout [String: String]
+    ) throws {
         switch builtin {
         case .inFolder:
             directory = try folder(named: arguments[0], from: directory)
@@ -397,6 +409,8 @@ struct Runner {
             try assertGitRepository(directory, requireRoot: true)
         case .assertGitRepository:
             try assertGitRepository(directory, requireRoot: false)
+        case .export:
+            try export(name: arguments[0], value: arguments[1], into: &environment)
         }
     }
 
@@ -415,11 +429,32 @@ struct Runner {
         return child
     }
 
-    private func executeCommand(_ executable: String, arguments: [String], directory: URL) throws {
-        printCommand(executable, arguments: arguments)
-        let status = try runInheritedCommand(executable, arguments: arguments, directory: directory)
+    private func export(name: String, value: String, into environment: inout [String: String]) throws {
+        guard isIdentifier(name) else {
+            throw CommandError(
+                "export requires an environment variable name using letters, digits, and underscores, starting with a letter or underscore."
+            )
+        }
+        environment[name] = value
+    }
+
+    private func executeCommand(
+        _ executable: String, arguments: [String], directory: URL, environment: [String: String]
+    ) throws {
+        printCommand(executable, arguments: redactedArguments(arguments))
+        let status = try runInheritedCommand(
+            executable, arguments: arguments, directory: directory, environment: environment)
         guard status == 0 else {
             throw CommandError("Command '\(executable)' failed with exit status \(status).", status: status)
+        }
+    }
+
+    private func redactedArguments(_ arguments: [String]) -> [String] {
+        let settings = configuration.settings.map(\.value).filter { !$0.isEmpty }.sorted { $0.count > $1.count }
+        return arguments.map { argument in
+            settings.reduce(argument) { redacted, setting in
+                redacted.replacingOccurrences(of: setting, with: "*****")
+            }
         }
     }
 
@@ -485,9 +520,11 @@ func quoteControlCharacter(_ character: Unicode.Scalar) -> String {
 }
 
 /// Inherit the caller's process group so terminal reads and terminal signals work normally.
-func runInheritedCommand(_ executable: String, arguments: [String], directory: URL) throws -> Int32 {
+func runInheritedCommand(
+    _ executable: String, arguments: [String], directory: URL, environment: [String: String]
+) throws -> Int32 {
     try validateProcessArguments([executable] + arguments)
-    let path = try executableURL(executable, directory: directory).path
+    let path = try executableURL(executable, directory: directory, environment: environment).path
     var actions: posix_spawn_file_actions_t?
     try checkSpawn(posix_spawn_file_actions_init(&actions), executable: executable)
     defer { posix_spawn_file_actions_destroy(&actions) }
@@ -510,7 +547,7 @@ func runInheritedCommand(_ executable: String, arguments: [String], directory: U
         signal(SIGQUIT, previousQuit)
     }
     try withCStringArray([executable] + arguments) { argv in
-        try withCStringArray(ProcessInfo.processInfo.environment.map { "\($0.key)=\($0.value)" }) { environment in
+        try withCStringArray(environment.map { "\($0.key)=\($0.value)" }) { environment in
             // No SETPGROUP flag: unlike Foundation.Process, keep the existing foreground job.
             try checkSpawn(posix_spawn(&pid, path, &actions, &attributes, argv, environment), executable: executable)
         }
@@ -575,11 +612,11 @@ func validateProcessArguments(_ arguments: [String]) throws {
     }
 }
 
-func executableURL(_ executable: String, directory: URL) throws -> URL {
+func executableURL(_ executable: String, directory: URL, environment: [String: String]? = nil) throws -> URL {
     if executable.contains("/") {
         return URL(fileURLWithPath: executable, relativeTo: directory).absoluteURL
     }
-    let searchPath = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+    let searchPath = (environment ?? ProcessInfo.processInfo.environment)["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
     for component in searchPath.components(separatedBy: ":") {
         let base = component.isEmpty ? directory : URL(fileURLWithPath: component, relativeTo: directory)
         let candidate = base.appendingPathComponent(executable)
@@ -720,7 +757,9 @@ func main(_ arguments: [String]) throws {
         return
     }
     var directory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
-    try Runner(configuration: configuration).run(name, arguments: options.arguments, directory: &directory)
+    var environment = ProcessInfo.processInfo.environment
+    try Runner(configuration: configuration).run(
+        name, arguments: options.arguments, directory: &directory, environment: &environment)
 }
 
 func handleMissingConfiguration(_ options: Options, path: URL) throws {

@@ -24,11 +24,39 @@
       "settings": ["FIGMA_TOKEN"],
       "steps": [
         {
-          "command": "/bin/zsh",
-          "args": [
-            "-c",
-            "export FIGMA_TOKEN=\"${FIGMA_TOKEN}\" &&\nnode scripts/sync-figma-icons.mjs &&\nnpx nx run unify:generate-unify-icons"
-          ]
+          "function": "invoke-in-frontend"
+        },
+        {
+          "builtin": "export",
+          "args": ["FIGMA_TOKEN", "${FIGMA_TOKEN}"]
+        },
+        {
+          "command": "node",
+          "args": ["scripts/sync-figma-icons.mjs"]
+        },
+        {
+          "command": "npx",
+          "args": ["nx", "run", "unify:generate-unify-icons"]
+        }
+      ]
+    },
+    "invoke-in-backend": {
+      "description": "Require the backend folder as the current working directory.",
+      "entryPoint": false,
+      "steps": [
+        {
+          "builtin": "inFolder",
+          "args": ["backend"]
+        }
+      ]
+    },
+    "invoke-in-frontend": {
+      "description": "Require the frontend folder as the current working directory.",
+      "entryPoint": false,
+      "steps": [
+        {
+          "builtin": "inFolder",
+          "args": ["frontend"]
         }
       ]
     },
