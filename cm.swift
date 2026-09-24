@@ -2,7 +2,7 @@
 import Darwin
 import Foundation
 
-let commandManagerVersion = "0.2"
+let commandManagerVersion = "0.3"
 
 struct CommandError: Error, CustomStringConvertible {
     let description: String
@@ -86,23 +86,41 @@ struct FunctionDefinition: Decodable {
     let description: String
     let entryPoint: Bool
     let parameters: [String]
+    let settings: [String]
     let steps: [Step]
 
     enum CodingKeys: String, CodingKey {
-        case description, entryPoint, parameters, steps
+        case description, entryPoint, parameters, settings, steps
     }
 
     init(from decoder: Decoder) throws {
-        try rejectUnknownKeys(decoder, allowed: ["description", "entryPoint", "parameters", "steps"])
+        try rejectUnknownKeys(decoder, allowed: ["description", "entryPoint", "parameters", "settings", "steps"])
         let container = try decoder.container(keyedBy: CodingKeys.self)
         description = try container.decode(String.self, forKey: .description)
         entryPoint = try container.decodeIfDefined(Bool.self, forKey: .entryPoint) ?? false
         parameters = try container.decodeIfDefined([String].self, forKey: .parameters) ?? []
+        settings = try container.decodeIfDefined([String].self, forKey: .settings) ?? []
         steps = try container.decode([Step].self, forKey: .steps)
     }
 
     var usage: String {
         parameters.map { "<\($0)>" }.joined(separator: " ")
+    }
+}
+
+struct SettingDefinition: Decodable {
+    let name: String
+    let value: String
+
+    enum CodingKeys: String, CodingKey {
+        case name, value
+    }
+
+    init(from decoder: Decoder) throws {
+        try rejectUnknownKeys(decoder, allowed: ["name", "value"])
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decode(String.self, forKey: .name)
+        value = try container.decode(String.self, forKey: .value)
     }
 }
 
@@ -140,9 +158,17 @@ enum Builtin: String, CaseIterable {
     case inFolder
     case assertGitRoot
     case assertGitRepository
+    case export
 
     var argumentCount: Int {
-        self == .inFolder ? 1 : 0
+        switch self {
+        case .inFolder:
+            return 1
+        case .export:
+            return 2
+        case .assertGitRoot, .assertGitRepository:
+            return 0
+        }
     }
 }
 
@@ -206,20 +232,23 @@ struct ArgumentTemplate {
 }
 
 struct Configuration: Decodable {
+    let settings: [SettingDefinition]
     let functions: [String: FunctionDefinition]
 
     enum CodingKeys: String, CodingKey {
-        case minimumVersion, functions
+        case minimumVersion, settings, functions
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         try validateMinimumVersion(container.decodeIfDefined(String.self, forKey: .minimumVersion))
-        try rejectUnknownKeys(decoder, allowed: ["minimumVersion", "functions"])
+        try rejectUnknownKeys(decoder, allowed: ["minimumVersion", "settings", "functions"])
+        settings = try container.decodeIfDefined([SettingDefinition].self, forKey: .settings) ?? []
         functions = try container.decode([String: FunctionDefinition].self, forKey: .functions)
     }
 
     func validate() throws {
+        try validateSettings()
         for name in functions.keys.sorted() {
             guard let function = functions[name] else { continue }
             try validateDefinition(name, function: function)
@@ -229,6 +258,16 @@ struct Configuration: Decodable {
         for name in functions.keys.sorted() {
             try validateCycles(name, path: [], visited: &visited)
         }
+    }
+
+    private func validateSettings() throws {
+        let names = settings.map(\.name)
+        guard names.allSatisfy(isIdentifier), Set(names).count == names.count else {
+            throw CommandError(
+                "Settings must have unique names using letters, digits, and underscores, starting with a letter or underscore."
+            )
+        }
+        try validateProcessArguments(settings.map(\.value))
     }
 
     private func validateDefinition(_ name: String, function: FunctionDefinition) throws {
@@ -247,6 +286,19 @@ struct Configuration: Decodable {
                 "Function '\(name)' must have unique parameter names using letters, digits, and underscores, starting with a letter or underscore."
             )
         }
+        guard function.settings.allSatisfy(isIdentifier), Set(function.settings).count == function.settings.count else {
+            throw CommandError(
+                "Function '\(name)' must have unique setting names using letters, digits, and underscores, starting with a letter or underscore."
+            )
+        }
+        guard Set(function.parameters).isDisjoint(with: function.settings) else {
+            throw CommandError("Function '\(name)' cannot use the same name for a parameter and a setting.")
+        }
+        let definedSettings = Set(settings.map(\.name))
+        guard Set(function.settings).isSubset(of: definedSettings) else {
+            let unknown = Set(function.settings).subtracting(definedSettings).sorted().joined(separator: ", ")
+            throw CommandError("Function '\(name)' uses unknown setting(s): \(unknown).")
+        }
     }
 
     private func validateSteps(_ name: String, function: FunctionDefinition) throws {
@@ -254,7 +306,7 @@ struct Configuration: Decodable {
             do {
                 try validateTarget(step)
                 for argument in step.args {
-                    try ArgumentTemplate(argument).validate(parameters: Set(function.parameters))
+                    try ArgumentTemplate(argument).validate(parameters: Set(function.parameters + function.settings))
                 }
             } catch {
                 throw CommandError("Function '\(name)', step \(index + 1): \(error)")
@@ -305,41 +357,60 @@ func requireArguments(_ arguments: [String], count: Int, target: String) throws 
     }
 }
 
-/// All calls share the entry point's directory; the host process never changes cwd.
+/// Each function inherits its caller's directory and restores it when the function returns.
 struct Runner {
     let configuration: Configuration
 
-    func run(_ name: String, arguments: [String], directory: inout URL) throws {
+    func runEntryPoint(
+        _ name: String, arguments: [String], directory: inout URL, environment: inout [String: String]
+    ) throws {
+        let initialEnvironment = environment
+        defer { environment = initialEnvironment }
+        try run(name, arguments: arguments, directory: &directory, environment: &environment)
+    }
+
+    func run(_ name: String, arguments: [String], directory: inout URL, environment: inout [String: String]) throws {
         guard let function = configuration.functions[name] else {
             throw CommandError("Unknown function '\(name)'.")
         }
         try requireArguments(arguments, count: function.parameters.count, target: "Function '\(name)'")
+        var functionDirectory = directory
         let values = Dictionary(uniqueKeysWithValues: zip(function.parameters, arguments))
+            .merging(settingValues(for: function), uniquingKeysWith: { _, setting in setting })
         for (index, step) in function.steps.enumerated() {
             do {
                 let args = try step.args.map { try ArgumentTemplate($0).render(values: values) }
-                try execute(step.target, arguments: args, directory: &directory)
+                try execute(step.target, arguments: args, directory: &functionDirectory, environment: &environment)
             } catch let error as CommandError {
                 throw CommandError("\(name), step \(index + 1): \(error)", status: error.status)
             }
         }
     }
 
-    private func execute(_ target: Step.Target, arguments: [String], directory: inout URL) throws {
+    private func settingValues(for function: FunctionDefinition) -> [String: String] {
+        let values = Dictionary(uniqueKeysWithValues: configuration.settings.map { ($0.name, $0.value) })
+        return Dictionary(uniqueKeysWithValues: function.settings.map { ($0, values[$0]!) })
+    }
+
+    private func execute(
+        _ target: Step.Target, arguments: [String], directory: inout URL, environment: inout [String: String]
+    ) throws {
         switch target {
         case .command(let executable):
-            try executeCommand(executable, arguments: arguments, directory: directory)
+            try executeCommand(executable, arguments: arguments, directory: directory, environment: environment)
         case .function(let name):
-            try run(name, arguments: arguments, directory: &directory)
+            try run(name, arguments: arguments, directory: &directory, environment: &environment)
         case .builtin(let name):
             guard let builtin = Builtin(rawValue: name) else {
                 throw CommandError("Unknown builtin '\(name)'.")
             }
-            try executeBuiltin(builtin, arguments: arguments, directory: &directory)
+            try executeBuiltin(builtin, arguments: arguments, directory: &directory, environment: &environment)
         }
     }
 
-    private func executeBuiltin(_ builtin: Builtin, arguments: [String], directory: inout URL) throws {
+    private func executeBuiltin(
+        _ builtin: Builtin, arguments: [String], directory: inout URL, environment: inout [String: String]
+    ) throws {
         switch builtin {
         case .inFolder:
             directory = try folder(named: arguments[0], from: directory)
@@ -347,6 +418,8 @@ struct Runner {
             try assertGitRepository(directory, requireRoot: true)
         case .assertGitRepository:
             try assertGitRepository(directory, requireRoot: false)
+        case .export:
+            try export(name: arguments[0], value: arguments[1], into: &environment)
         }
     }
 
@@ -365,11 +438,32 @@ struct Runner {
         return child
     }
 
-    private func executeCommand(_ executable: String, arguments: [String], directory: URL) throws {
-        printCommand(executable, arguments: arguments)
-        let status = try runInheritedCommand(executable, arguments: arguments, directory: directory)
+    private func export(name: String, value: String, into environment: inout [String: String]) throws {
+        guard isIdentifier(name) else {
+            throw CommandError(
+                "export requires an environment variable name using letters, digits, and underscores, starting with a letter or underscore."
+            )
+        }
+        environment[name] = value
+    }
+
+    private func executeCommand(
+        _ executable: String, arguments: [String], directory: URL, environment: [String: String]
+    ) throws {
+        printCommand(executable, arguments: redactedArguments(arguments))
+        let status = try runInheritedCommand(
+            executable, arguments: arguments, directory: directory, environment: environment)
         guard status == 0 else {
             throw CommandError("Command '\(executable)' failed with exit status \(status).", status: status)
+        }
+    }
+
+    private func redactedArguments(_ arguments: [String]) -> [String] {
+        let settings = configuration.settings.map(\.value).filter { !$0.isEmpty }.sorted { $0.count > $1.count }
+        return arguments.map { argument in
+            settings.reduce(argument) { redacted, setting in
+                redacted.replacingOccurrences(of: setting, with: "*****")
+            }
         }
     }
 
@@ -435,9 +529,11 @@ func quoteControlCharacter(_ character: Unicode.Scalar) -> String {
 }
 
 /// Inherit the caller's process group so terminal reads and terminal signals work normally.
-func runInheritedCommand(_ executable: String, arguments: [String], directory: URL) throws -> Int32 {
+func runInheritedCommand(
+    _ executable: String, arguments: [String], directory: URL, environment: [String: String]
+) throws -> Int32 {
     try validateProcessArguments([executable] + arguments)
-    let path = try executableURL(executable, directory: directory).path
+    let path = try executableURL(executable, directory: directory, environment: environment).path
     var actions: posix_spawn_file_actions_t?
     try checkSpawn(posix_spawn_file_actions_init(&actions), executable: executable)
     defer { posix_spawn_file_actions_destroy(&actions) }
@@ -460,7 +556,7 @@ func runInheritedCommand(_ executable: String, arguments: [String], directory: U
         signal(SIGQUIT, previousQuit)
     }
     try withCStringArray([executable] + arguments) { argv in
-        try withCStringArray(ProcessInfo.processInfo.environment.map { "\($0.key)=\($0.value)" }) { environment in
+        try withCStringArray(environment.map { "\($0.key)=\($0.value)" }) { environment in
             // No SETPGROUP flag: unlike Foundation.Process, keep the existing foreground job.
             try checkSpawn(posix_spawn(&pid, path, &actions, &attributes, argv, environment), executable: executable)
         }
@@ -525,11 +621,11 @@ func validateProcessArguments(_ arguments: [String]) throws {
     }
 }
 
-func executableURL(_ executable: String, directory: URL) throws -> URL {
+func executableURL(_ executable: String, directory: URL, environment: [String: String]? = nil) throws -> URL {
     if executable.contains("/") {
         return URL(fileURLWithPath: executable, relativeTo: directory).absoluteURL
     }
-    let searchPath = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+    let searchPath = (environment ?? ProcessInfo.processInfo.environment)["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
     for component in searchPath.components(separatedBy: ":") {
         let base = component.isEmpty ? directory : URL(fileURLWithPath: component, relativeTo: directory)
         let candidate = base.appendingPathComponent(executable)
@@ -670,7 +766,9 @@ func main(_ arguments: [String]) throws {
         return
     }
     var directory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
-    try Runner(configuration: configuration).run(name, arguments: options.arguments, directory: &directory)
+    var environment = ProcessInfo.processInfo.environment
+    try Runner(configuration: configuration).runEntryPoint(
+        name, arguments: options.arguments, directory: &directory, environment: &environment)
 }
 
 func handleMissingConfiguration(_ options: Options, path: URL) throws {

@@ -12,7 +12,7 @@ final class CommandExecutionTests: CMTestCase {
         for arguments in invocations {
             let result = try runCM(arguments)
             assertSuccess(result)
-            #expect(result.stdout.hasPrefix("CommandManager 0.2 —"))
+            #expect(result.stdout.hasPrefix("CommandManager 0.3 —"))
             let alpha = try #require(result.stdout.range(of: "Alpha"))
             let zulu = try #require(result.stdout.range(of: "Zulu"))
             #expect(alpha.lowerBound < zulu.lowerBound)
@@ -47,7 +47,7 @@ final class CommandExecutionTests: CMTestCase {
     func testMissingDefaultConfigurationExplainsSetup() throws {
         let result = try runCM(useConfig: false)
         let output = result.stdout + result.stderr
-        #expect(result.stdout.hasPrefix("CommandManager 0.2 —"))
+        #expect(result.stdout.hasPrefix("CommandManager 0.3 —"))
         #expect(output.contains("cm.json"))
         #expect(output.contains("Application Support"))
         #expect(!(output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
@@ -94,6 +94,35 @@ final class CommandExecutionTests: CMTestCase {
             )
         ])
         assertSuccess(try runCM(["main", "hello"]), output: "prefix-hello-suffix $ ${literal}\n")
+    }
+
+    @Test func testDeclaredSettingsAreSubstitutedInFunctionArguments() throws {
+        try configure(
+            ["main": function([printStep("${FIGMA_TOKEN}")], settings: ["FIGMA_TOKEN"])],
+            settings: [["name": "FIGMA_TOKEN", "value": "secret-token"]])
+        assertSuccess(try runCM(["main"]), output: "secret-token\n")
+    }
+
+    @Test func testSettingsAreRedactedInPrintedCommands() throws {
+        try configure(
+            [
+                "main": function(
+                    [["command": "/usr/bin/true", "args": ["prefix-${FIGMA_TOKEN}-suffix"]]],
+                    settings: ["FIGMA_TOKEN"])
+            ], settings: [["name": "FIGMA_TOKEN", "value": "secret-token"]])
+        let result = try runCM(["main"])
+        assertSuccess(result)
+        #expect(result.stdout.contains("prefix-*****-suffix"))
+        #expect(!result.stdout.contains("secret-token"))
+    }
+
+    @Test func testCalledFunctionsUseTheirOwnDeclaredSettings() throws {
+        try configure(
+            [
+                "main": function([["function": "helper"]]),
+                "helper": function([printStep("${FIGMA_TOKEN}")], settings: ["FIGMA_TOKEN"], entry: false),
+            ], settings: [["name": "FIGMA_TOKEN", "value": "secret-token"]])
+        assertSuccess(try runCM(["main"]), output: "secret-token\n")
     }
 
     @Test func testCommandsAreEchoedInGreenWithAGreyChevronBeforeTheirOutput() throws {
@@ -179,6 +208,18 @@ final class CommandExecutionTests: CMTestCase {
         assertSuccess(
             try runCM(["main"], environment: environment, input: "input\n"), output: "input\ninherited"
         )
+    }
+
+    @Test func testExportBuiltinSetsEnvironmentForLaterCommands() throws {
+        try configure(
+            [
+                "main": function(
+                    [
+                        ["builtin": "export", "args": ["FIGMA_TOKEN", "${FIGMA_TOKEN}"]],
+                        ["command": "/usr/bin/printenv", "args": ["FIGMA_TOKEN"]],
+                    ], settings: ["FIGMA_TOKEN"])
+            ], settings: [["name": "FIGMA_TOKEN", "value": "secret-token"]])
+        assertSuccess(try runCM(["main"]), output: "secret-token\n")
     }
 
     @Test func testCommandOutputChannelsArePreserved() throws {

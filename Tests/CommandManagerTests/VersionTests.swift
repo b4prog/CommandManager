@@ -3,26 +3,26 @@ import Testing
 
 final class VersionTests: CMTestCase {
     @Test func testCompatibleMinimumVersionsAreAccepted() throws {
-        for minimum in ["0.0", "0.1", "0.1.999", "0.2", "0.2.0", "0.02"] {
+        for minimum in ["0.0", "0.1", "0.1.999", "0.2", "0.2.0", "0.02", "0.3"] {
             try writeConfiguration(minimum: minimum, steps: [printStep("compatible")])
             assertSuccess(try runCM(["main"]), output: "compatible\n")
         }
     }
 
     @Test func testNewerMinimumVersionsFailBeforeExecution() throws {
-        for minimum in ["0.2.1", "0.3", "0.10", "1.0", "10.0"] {
+        for minimum in ["0.3.1", "0.4", "0.10", "1.0", "10.0"] {
             try writeConfiguration(minimum: minimum, steps: [markerStep()])
             let result = try runCM(["main"])
             assertFailure(result)
             #expect(result.stderr.contains("requires CommandManager \(minimum) or later"))
-            #expect(result.stderr.contains("installed version is 0.2"))
+            #expect(result.stderr.contains("installed version is 0.3"))
             #expect(result.stdout.isEmpty)
             #expect(!FileManager.default.fileExists(atPath: marker.path))
         }
     }
 
     @Test func testNewerMinimumVersionAlsoFailsForHelp() throws {
-        try writeConfiguration(minimum: "0.3", steps: [])
+        try writeConfiguration(minimum: "0.4", steps: [])
         assertFailure(try runCM())
         assertFailure(try runCM(["--help"]))
     }

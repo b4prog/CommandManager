@@ -70,7 +70,7 @@ The optional root-level `minimumVersion` field specifies the oldest compatible C
 
 ```json
 {
-  "minimumVersion": "0.2",
+  "minimumVersion": "0.3",
   "functions": {}
 }
 ```
@@ -86,12 +86,14 @@ cm
 cm Hello Bruno
 cm GitStatus
 cm CheckPackage CommandManager
+cm icons-sync
 ```
 
-- `cm` shows the current version (`0.2`) and lists the available entry points and their descriptions.
+- `cm` shows the current version (`0.3`) and lists the available entry points and their descriptions.
 - `Hello` prints a greeting using a required `name` argument.
 - `GitStatus` prints a short Git status when run inside a Git working tree.
 - `CheckPackage` enters the named folder, verifies that it is a Git repository root, then builds and tests its Swift package. Run it from the named folder itself or its immediate parent.
+- `icons-sync` exports the configured Figma token, syncs Figma icons, and generates Unify icons.
 
 This repository includes `Package.swift`, so `cm CheckPackage CommandManager` builds and tests CommandManager. Replace `CommandManager` with another Swift package's folder name to check that package instead.
 
@@ -117,21 +119,32 @@ Names are case sensitive. Functions accept exactly the number of arguments decla
 cm Hello "Bruno Smith"
 ```
 
-## Define functions
+## Define functions and settings
 
-The root object contains a `functions` object. Its keys are the function names:
+The root object contains a `functions` object and can contain a `settings` array. Settings are named string values shared by the configuration, but a function must declare the settings it uses:
 
 ```json
 {
+  "settings": [
+    { "name": "FIGMA_TOKEN", "value": "replace-with-your-token" }
+  ],
   "functions": {
-    "Hello": {
-      "description": "Print a greeting.",
+    "icons-sync": {
+      "description": "Sync Figma icons and generate Unify icons.",
       "entryPoint": true,
-      "parameters": ["name"],
+      "settings": ["FIGMA_TOKEN"],
       "steps": [
         {
-          "command": "/usr/bin/printf",
-          "args": ["Hello, %s!\n", "${name}"]
+          "builtin": "export",
+          "args": ["FIGMA_TOKEN", "${FIGMA_TOKEN}"]
+        },
+        {
+          "command": "node",
+          "args": ["scripts/sync-figma-icons.mjs"]
+        },
+        {
+          "command": "npx",
+          "args": ["nx", "run", "unify:generate-unify-icons"]
         }
       ]
     }
@@ -144,9 +157,12 @@ The root object contains a `functions` object. Its keys are the function names:
 | `description` | Yes | A nonempty description displayed in help. |
 | `entryPoint` | No | `true` allows direct CLI invocation. Defaults to `false`. |
 | `parameters` | No | Ordered names of required positional arguments. Defaults to `[]`. |
+| `settings` | No | Names of root-level settings available to this function. Defaults to `[]`. |
 | `steps` | Yes | Steps to run in order. |
 
-Function names allow letters, digits, underscores, and hyphens, starting with a letter or underscore: `[A-Za-z_][A-Za-z0-9_-]*`. For example, `brew-update` is a valid entry point or helper name. Parameter names use `[A-Za-z_][A-Za-z0-9_]*` and must be unique within a function; hyphens are allowed only in function names.
+Function names allow letters, digits, underscores, and hyphens, starting with a letter or underscore: `[A-Za-z_][A-Za-z0-9_-]*`. For example, `brew-update` is a valid entry point or helper name. Parameter and setting names use `[A-Za-z_][A-Za-z0-9_]*`; each list must be unique, and a function cannot use the same name for a parameter and a setting.
+
+The `icons-sync` example exports `FIGMA_TOKEN` and then runs the icon synchronization and generation commands as separate steps, without invoking a shell. Settings are substituted exactly like parameters, but only in a function that lists them. Called functions declare their own settings; settings are not inherited from their caller. Store configuration files containing secrets with appropriate filesystem permissions.
 
 An entry point can call other entry points or internal functions. A function without `"entryPoint": true` is internal: it cannot be invoked directly with `cm` and is omitted from the entry point list. This separates the public commands you use from the helpers they share.
 
@@ -169,7 +185,7 @@ Executables are resolved using `PATH`, or you can specify an executable path. Co
 
 Interactive commands share the terminal's foreground process group with `cm`, so confirmation prompts can read your input normally. Terminal signals such as Ctrl+C reach the command as well as `cm`.
 
-Before each configured command runs, CommandManager writes a grey `❯ ` prefix followed by its executable and expanded arguments in green to standard output. The color resets before the command's own output. Arguments are displayed with shell-style quoting when needed, including empty values, spaces, and special characters. For example, the greeting command for `cm Hello "Bruno Smith"` shows the expanded name as `'Bruno Smith'`. These echoes, including their ANSI color sequences, are also present when output is redirected. Internal Git checks performed by built-ins are not echoed.
+Before each configured command runs, CommandManager writes a grey `❯ ` prefix followed by its executable and expanded arguments in green to standard output. The color resets before the command's own output. Arguments are displayed with shell-style quoting when needed, including empty values, spaces, and special characters. For example, the greeting command for `cm Hello "Bruno Smith"` shows the expanded name as `'Bruno Smith'`. Every nonempty setting value in a printed command is replaced with `*****`; the command still receives the original value. These echoes, including their ANSI color sequences, are also present when output is redirected. Internal Git checks performed by built-ins are not echoed.
 
 Arguments are passed directly to the executable. Spaces, `*`, `~`, pipes, redirection, and environment variable syntax have no special shell meaning. For example, `"args": ["*.swift"]` passes one literal argument, and `"args": ["~/Downloads"]` does not expand to your home directory. JSON still requires its own escaping, such as `\n` for a newline.
 
@@ -230,7 +246,7 @@ Built-ins implement operations that need access to CommandManager's execution st
 
 ## Arguments and substitution
 
-Use `${parameter}` inside any step argument to insert the corresponding function argument. A placeholder can be the whole string or part of it:
+Use `${parameter}` or a declared `${setting}` inside any step argument to insert the corresponding value. A placeholder can be the whole string or part of it:
 
 ```json
 {
@@ -251,7 +267,7 @@ Substitution applies only to `args`, not to executable names, function names, bu
 { "builtin": "inFolder", "args": ["MyPackage"] }
 ```
 
-`inFolder` changes the working directory for the remaining execution of the entry point. The change applies to the current function, its callers when they resume, and later function calls. Each time this step is reached:
+`inFolder` changes the working directory for the remaining steps of the current function and any functions it calls. When the current function returns, its caller's directory is restored. Each time this step is reached:
 
 1. If the current directory's name is already `MyPackage`, it does nothing.
 2. Otherwise, it enters a direct child directory named `MyPackage`.
@@ -259,23 +275,25 @@ Substitution applies only to `args`, not to executable names, function names, bu
 
 The argument must be a single folder name. Empty names, `.`, `..`, absolute paths, and names containing `/` are rejected. It does not search ancestors or arbitrary descendants.
 
-An entry point and all functions it calls share one working directory. A directory change made by a helper persists after that helper returns: later steps in its caller and later sibling functions continue from that directory. Calling `inFolder` several times can descend one folder at a time, whether the calls are in the same function or different functions:
+Each function starts in its caller's directory. A directory change made by a helper is available to nested calls, but it does not leak back to the caller or sibling functions:
 
 ```text
 Entry point starts in /work
-  inFolder("App")          → /work/App
   Call Prepare
-    inFolder("Packages")   → /work/App/Packages
-    inFolder("Core")       → /work/App/Packages/Core
-    Prepare returns        → /work/App/Packages/Core
-  Entry point's next step   → /work/App/Packages/Core
+    inFolder("App")        → /work/App
+    Prepare's command       → /work/App
+    Call Build
+      inFolder("Core")     → /work/App/Core
+      Build's command       → /work/App/Core
+    Build returns           → /work/App
+    Prepare's next command  → /work/App
+  Prepare returns           → /work
   Call Check
-    inFolder("Core")       → /work/App/Packages/Core (already there)
-    Check's next command   → /work/App/Packages/Core
+    Check's command         → /work
 Entry point finishes; the launching terminal is still in /work
 ```
 
-A command that runs `cd` inside a shell changes only that shell's directory. Use `inFolder` to affect subsequent CommandManager steps. The shared directory context lasts until the entry point finishes, whether successfully or with an error. CommandManager does not change the directory of the terminal that launched it.
+A command that runs `cd` inside a shell changes only that shell's directory. Use `inFolder` to affect subsequent steps in the same function and its nested calls. CommandManager does not change the directory of the terminal that launched it.
 
 ### `assertGitRoot` — no arguments
 
@@ -295,13 +313,21 @@ Succeeds at a Git working tree's root or in one of its subdirectories. Both Git 
 
 Both assertions ignore `GIT_*` environment overrides for their internal checks, so they inspect the actual current directory even when invoked from a Git hook or alias. Configured command steps still inherit the full environment.
 
+### `export` — environment-variable name and value
+
+```json
+{ "builtin": "export", "args": ["FIGMA_TOKEN", "${FIGMA_TOKEN}"] }
+```
+
+Sets an environment variable for the remaining steps of the current entry point, including called functions. Subsequent command steps inherit it and run directly without a shell. When the entry point finishes, CommandManager restores the variable's previous value or removes it if it was previously absent. The variable name must use `[A-Za-z_][A-Za-z0-9_]*`. This changes CommandManager's execution environment only; it cannot modify the terminal process that launched `cm`.
+
 ## Validation and failures
 
-CommandManager validates the whole configuration before running any step, including functions that are not entry points. It rejects unknown fields, invalid names and types, explicit `null` values, unknown function or built-in references, incorrect argument counts, unknown parameter references, and recursive call cycles. Executable names and argument strings must not contain NUL characters. Direct recursion and cycles involving several functions are not supported.
+CommandManager validates the whole configuration before running any step, including functions that are not entry points. It rejects unknown fields, invalid names and types, explicit `null` values, duplicate or unknown settings, settings that were not declared by the function using them, unknown function or built-in references, incorrect argument counts, unknown parameter references, and recursive call cycles. Executable names, argument strings, and setting values must not contain NUL characters. Direct recursion and cycles involving several functions are not supported.
 
 Every step must succeed before the next begins. A command with a nonzero exit status aborts the current function and every caller; later steps do not run. CommandManager preserves the failing command's exit status. Configuration errors and built-in failures also exit unsuccessfully with a diagnostic.
 
-Directory changes persist throughout the entry point's call hierarchy and end when that entry point finishes. Other effects are not rolled back: files written by an earlier command remain if a later command fails. There are no automatic retries, parallel steps, or continue-on-error options.
+Directory changes are scoped to the function that makes them and its nested calls; a caller's directory is restored when a helper returns. Other effects are not rolled back: files written by an earlier command remain if a later command fails. There are no automatic retries, parallel steps, or continue-on-error options.
 
 ## Add a built-in in Swift
 

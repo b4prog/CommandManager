@@ -26,24 +26,26 @@ final class DirectoryAndGitTests: CMTestCase {
             try runCM(["main"]), output: "\(directory.path)\n\(child.path)\n\(grandchild.path)\n")
     }
 
-    @Test func testDirectoryChangesContinueThroughTheEntryPoint() throws {
+    @Test func testDirectoryChangesAreScopedToFunctionsAndTheirCallees() throws {
         let grandchild = try makeDirectory("child/grandchild")
         let child = grandchild.deletingLastPathComponent()
         try configure([
             "main": function([
                 ["command": "/bin/pwd"], ["function": "helper"], ["command": "/bin/pwd"],
-                ["function": "sibling"], ["command": "/bin/pwd"],
             ]),
             "helper": function(
-                [["builtin": "inFolder", "args": ["child"]], ["command": "/bin/pwd"]],
-                entry: false),
-            "sibling": function(
                 [
-                    ["command": "/bin/pwd"], ["builtin": "inFolder", "args": ["grandchild"]],
+                    ["builtin": "inFolder", "args": ["child"]], ["command": "/bin/pwd"],
+                    ["function": "nested"], ["command": "/bin/pwd"],
+                ],
+                entry: false),
+            "nested": function(
+                [
+                    ["builtin": "inFolder", "args": ["grandchild"]],
                     ["command": "/bin/pwd"],
                 ], entry: false),
         ])
-        let expected = [directory.path, child.path, child.path, child.path, grandchild.path, grandchild.path]
+        let expected = [directory.path, child.path, grandchild.path, child.path, directory.path]
         assertSuccess(try runCM(["main"]), output: expected.joined(separator: "\n") + "\n")
     }
 

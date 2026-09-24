@@ -1,5 +1,11 @@
 {
-  "minimumVersion": "0.2",
+  "minimumVersion": "0.3",
+  "settings": [
+    {
+      "name": "FIGMA_TOKEN",
+      "value": "replace-with-your-token"
+    }
+  ],
   "functions": {
     "Hello": {
       "description": "Print a greeting.",
@@ -9,6 +15,48 @@
         {
           "command": "/usr/bin/printf",
           "args": ["Hello, %s!\n", "${name}"]
+        }
+      ]
+    },
+    "icons-sync": {
+      "description": "Sync Figma icons and generate Unify icons.",
+      "entryPoint": true,
+      "settings": ["FIGMA_TOKEN"],
+      "steps": [
+        {
+          "function": "invoke-in-frontend"
+        },
+        {
+          "builtin": "export",
+          "args": ["FIGMA_TOKEN", "${FIGMA_TOKEN}"]
+        },
+        {
+          "command": "node",
+          "args": ["scripts/sync-figma-icons.mjs"]
+        },
+        {
+          "command": "npx",
+          "args": ["nx", "run", "unify:generate-unify-icons"]
+        }
+      ]
+    },
+    "invoke-in-backend": {
+      "description": "Require the backend folder as the current working directory.",
+      "entryPoint": false,
+      "steps": [
+        {
+          "builtin": "inFolder",
+          "args": ["backend"]
+        }
+      ]
+    },
+    "invoke-in-frontend": {
+      "description": "Require the frontend folder as the current working directory.",
+      "entryPoint": false,
+      "steps": [
+        {
+          "builtin": "inFolder",
+          "args": ["frontend"]
         }
       ]
     },

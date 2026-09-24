@@ -46,6 +46,8 @@ final class ConfigurationTests: CMTestCase {
             ["builtin": "inFolder", "args": ["one", "two"]],
             ["builtin": "assertGitRoot", "args": ["one"]],
             ["builtin": "assertGitRepository", "args": ["one"]],
+            ["builtin": "export"],
+            ["builtin": "export", "args": ["VARIABLE"]],
         ]
         for step in invalidSteps {
             try assertInvalidConfiguration([
@@ -66,6 +68,34 @@ final class ConfigurationTests: CMTestCase {
         for parameters in [["name", "name"], [""], ["two words"], ["1number"], ["name\n"]] {
             try assertInvalidConfiguration(["main": function([markerStep()], parameters: parameters)])
         }
+    }
+
+    @Test func testInvalidSettingsAreRejectedBeforeExecution() throws {
+        let functions = ["main": function([markerStep()], settings: ["known"])]
+        let invalidSettings: [[[String: Any]]] = [
+            [["name": "known", "value": "one"], ["name": "known", "value": "two"]],
+            [["name": "invalid name", "value": "one"]],
+            [["name": "known", "value": NSNull()]],
+        ]
+        for settings in invalidSettings {
+            try configure(functions, settings: settings)
+            assertFailure(try runCM(["main"]))
+            #expect(!FileManager.default.fileExists(atPath: marker.path))
+        }
+        try assertInvalidConfiguration(["main": function([markerStep()], settings: ["missing"])])
+    }
+
+    @Test func testSettingsMustBeDeclaredAndCannotConflictWithParameters() throws {
+        try configure(
+            ["main": function([markerStep(), printStep("${token}")])],
+            settings: [["name": "token", "value": "secret"]])
+        assertFailure(try runCM(["main"]))
+        #expect(!FileManager.default.fileExists(atPath: marker.path))
+        try configure(
+            ["main": function([markerStep()], parameters: ["token"], settings: ["token"])],
+            settings: [["name": "token", "value": "secret"]])
+        assertFailure(try runCM(["main", "value"]))
+        #expect(!FileManager.default.fileExists(atPath: marker.path))
     }
 
     @Test func testInvalidFunctionNamesAndEmptyDescriptionsAreRejected() throws {
