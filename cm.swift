@@ -357,7 +357,7 @@ func requireArguments(_ arguments: [String], count: Int, target: String) throws 
     }
 }
 
-/// All calls share the entry point's directory; the host process never changes cwd.
+/// Each function inherits its caller's directory and restores it when the function returns.
 struct Runner {
     let configuration: Configuration
 
@@ -374,12 +374,13 @@ struct Runner {
             throw CommandError("Unknown function '\(name)'.")
         }
         try requireArguments(arguments, count: function.parameters.count, target: "Function '\(name)'")
+        var functionDirectory = directory
         let values = Dictionary(uniqueKeysWithValues: zip(function.parameters, arguments))
             .merging(settingValues(for: function), uniquingKeysWith: { _, setting in setting })
         for (index, step) in function.steps.enumerated() {
             do {
                 let args = try step.args.map { try ArgumentTemplate($0).render(values: values) }
-                try execute(step.target, arguments: args, directory: &directory, environment: &environment)
+                try execute(step.target, arguments: args, directory: &functionDirectory, environment: &environment)
             } catch let error as CommandError {
                 throw CommandError("\(name), step \(index + 1): \(error)", status: error.status)
             }

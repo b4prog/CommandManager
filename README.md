@@ -267,7 +267,7 @@ Substitution applies only to `args`, not to executable names, function names, bu
 { "builtin": "inFolder", "args": ["MyPackage"] }
 ```
 
-`inFolder` changes the working directory for the remaining execution of the entry point. The change applies to the current function, its callers when they resume, and later function calls. Each time this step is reached:
+`inFolder` changes the working directory for the remaining steps of the current function and any functions it calls. When the current function returns, its caller's directory is restored. Each time this step is reached:
 
 1. If the current directory's name is already `MyPackage`, it does nothing.
 2. Otherwise, it enters a direct child directory named `MyPackage`.
@@ -275,23 +275,25 @@ Substitution applies only to `args`, not to executable names, function names, bu
 
 The argument must be a single folder name. Empty names, `.`, `..`, absolute paths, and names containing `/` are rejected. It does not search ancestors or arbitrary descendants.
 
-An entry point and all functions it calls share one working directory. A directory change made by a helper persists after that helper returns: later steps in its caller and later sibling functions continue from that directory. Calling `inFolder` several times can descend one folder at a time, whether the calls are in the same function or different functions:
+Each function starts in its caller's directory. A directory change made by a helper is available to nested calls, but it does not leak back to the caller or sibling functions:
 
 ```text
 Entry point starts in /work
-  inFolder("App")          → /work/App
   Call Prepare
-    inFolder("Packages")   → /work/App/Packages
-    inFolder("Core")       → /work/App/Packages/Core
-    Prepare returns        → /work/App/Packages/Core
-  Entry point's next step   → /work/App/Packages/Core
+    inFolder("App")        → /work/App
+    Prepare's command       → /work/App
+    Call Build
+      inFolder("Core")     → /work/App/Core
+      Build's command       → /work/App/Core
+    Build returns           → /work/App
+    Prepare's next command  → /work/App
+  Prepare returns           → /work
   Call Check
-    inFolder("Core")       → /work/App/Packages/Core (already there)
-    Check's next command   → /work/App/Packages/Core
+    Check's command         → /work
 Entry point finishes; the launching terminal is still in /work
 ```
 
-A command that runs `cd` inside a shell changes only that shell's directory. Use `inFolder` to affect subsequent CommandManager steps. The shared directory context lasts until the entry point finishes, whether successfully or with an error. CommandManager does not change the directory of the terminal that launched it.
+A command that runs `cd` inside a shell changes only that shell's directory. Use `inFolder` to affect subsequent steps in the same function and its nested calls. CommandManager does not change the directory of the terminal that launched it.
 
 ### `assertGitRoot` — no arguments
 
@@ -325,7 +327,7 @@ CommandManager validates the whole configuration before running any step, includ
 
 Every step must succeed before the next begins. A command with a nonzero exit status aborts the current function and every caller; later steps do not run. CommandManager preserves the failing command's exit status. Configuration errors and built-in failures also exit unsuccessfully with a diagnostic.
 
-Directory changes persist throughout the entry point's call hierarchy and end when that entry point finishes. Other effects are not rolled back: files written by an earlier command remain if a later command fails. There are no automatic retries, parallel steps, or continue-on-error options.
+Directory changes are scoped to the function that makes them and its nested calls; a caller's directory is restored when a helper returns. Other effects are not rolled back: files written by an earlier command remain if a later command fails. There are no automatic retries, parallel steps, or continue-on-error options.
 
 ## Add a built-in in Swift
 
