@@ -95,21 +95,25 @@ indirect enum Condition: Decodable {
     case any([Condition])
     case all([Condition])
     case not(Condition)
+    case equals(StringComparison)
+    case notEquals(StringComparison)
 
     init(from decoder: Decoder) throws {
         if let name = try? decoder.singleValueContainer().decode(String.self) {
             self = .value(name)
             return
         }
-        try rejectUnknownKeys(decoder, allowed: ["any", "all", "not"])
+        try rejectUnknownKeys(decoder, allowed: ["any", "all", "not", "equals", "notEquals"])
         let container = try decoder.container(keyedBy: JSONKey.self)
         guard container.allKeys.count == 1, let key = container.allKeys.first else {
-            throw CommandError("A condition requires exactly one of any, all, or not.")
+            throw CommandError("A condition requires exactly one of any, all, not, equals, or notEquals.")
         }
         switch key.stringValue {
         case "any": self = .any(try container.decode([Condition].self, forKey: key))
         case "all": self = .all(try container.decode([Condition].self, forKey: key))
-        default: self = .not(try container.decode(Condition.self, forKey: key))
+        case "not": self = .not(try container.decode(Condition.self, forKey: key))
+        case "equals": self = .equals(try container.decode(StringComparison.self, forKey: key))
+        default: self = .notEquals(try container.decode(StringComparison.self, forKey: key))
         }
     }
 
@@ -121,6 +125,7 @@ indirect enum Condition: Decodable {
             guard !conditions.isEmpty else { throw CommandError("Condition lists must not be empty.") }
             for condition in conditions { try condition.validate(names) }
         case .not(let condition): try condition.validate(names)
+        case .equals(let comparison), .notEquals(let comparison): try comparison.validate(names)
         }
     }
 
@@ -137,6 +142,8 @@ indirect enum Condition: Decodable {
         case .any(let conditions): return try conditions.contains { try $0.evaluate(values) }
         case .all(let conditions): return try conditions.allSatisfy { try $0.evaluate(values) }
         case .not(let condition): return try !condition.evaluate(values)
+        case .equals(let comparison): return try comparison.matches(values)
+        case .notEquals(let comparison): return try !comparison.matches(values)
         }
     }
 }

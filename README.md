@@ -299,13 +299,32 @@ Declare boolean options as a name-to-description object on a function:
 
 Invoke with `cm MyFunction --build --check`. Unselected options are false. Names are case sensitive, follow the function-name syntax, and cannot conflict with parameters or declared settings. Unknown `--options` fail. Use `--` to end option parsing when passing a positional value starting with `--`. Functions without declared options retain the previous literal-argument behavior. `--all` has no special built-in meaning: explicitly include it in the relevant conditions. Helper calls may pass declared options in their `args`; helpers do not inherit the caller's option values.
 
-A step's optional `when` is a variable name or a condition object with exactly one of `any`, `all`, or `not`:
+A step's optional `when` is a variable name or a condition object with exactly one of `any`, `all`, `not`, `equals`, or `notEquals`:
 
 ```json
 { "function": "Build", "when": { "any": ["build", "all"] } }
 ```
 
 Conditions can nest. `any` and `all` require nonempty arrays and short-circuit in order. Values must be JSON booleans or the strings `true`/`false`. The condition is evaluated before arguments, so a skipped step does not attempt to resolve its arguments. `label` supplies a human-readable name included in failure diagnostics.
+
+### Compare values
+
+`equals` and `notEquals` each take exactly two string templates. Comparisons are case sensitive and use the rendered text, including whitespace. Use `${name}` to reference a parameter, declared setting, option, or earlier saved value; other strings are literals. `$$` escapes a dollar sign as it does in command arguments.
+
+```json
+{
+  "command": "tool",
+  "args": ["refresh"],
+  "when": {
+    "all": [
+      { "notEquals": ["${after}", ""] },
+      { "notEquals": ["${before}", "${after}"] }
+    ]
+  }
+}
+```
+
+Comparisons compose with `any`, `all`, and `not`, retaining short-circuit evaluation. Unknown references and malformed operands fail configuration validation. A skipped output referenced by an evaluated comparison fails at runtime. JSON booleans and numbers use the same scalar rendering as arguments; objects, arrays, and null cannot be interpolated. These are text comparisons, not numeric ordering or shell expressions.
 
 ### Save and use values
 
@@ -406,6 +425,7 @@ Sets an environment variable for the remaining steps of the current entry point,
 | Builtin | Arguments | Result / behavior |
 | --- | --- | --- |
 | `set` | value | Save the substituted string using `saveAs`. |
+| `executableHash` | executable name or path | Save the executable's SHA-256 digest, or an empty string if no matching executable exists. |
 | `inDirectory` | path | Enter an existing absolute or relative directory; restore the caller's directory on function return. |
 | `pathJoin` | base, component… | Save a joined path. Requires a nonempty base; later components must be nonempty relative paths. Does not check existence or expand `~`. |
 | `assertPath` | path, kind | Require a regular `file` or a `directory`. |
@@ -415,6 +435,14 @@ Sets an environment variable for the remaining steps of the current entry point,
 | `readJson` | path | Read and save a JSON value. |
 | `jsonGet` | variable name, JSON pointer | Select and save a required JSON value; missing, null, and whitespace-only strings fail. |
 | `log` | message | Print a message with sensitive values redacted. |
+
+`executableHash` uses the same executable resolution as command steps: the current execution environment's `PATH` (including previous `export` steps), or an explicit absolute/relative path. It follows symlinks, hashes file contents in chunks without launching the executable, and returns a lowercase hexadecimal SHA-256 digest. Non-executable files and directories do not match; empty executable files have the normal nonempty SHA-256 digest of empty content. A resolved executable that cannot be read causes a failure, rather than returning an empty hash. Special files are rejected. An empty executable name is invalid.
+
+```json
+{ "builtin": "executableHash", "args": ["tool"], "saveAs": "before" }
+```
+
+Capture a second hash after an update and combine `notEquals` conditions to run a follow-up only when the executable exists and its contents changed. The lookup runs again each time, so changes to `PATH` or the executable selected by it are respected.
 
 All value-producing builtins require `saveAs`; other builtins reject it. Paths resolve relative to the current function's directory. The new Git builtins, like existing Git assertions, ignore `GIT_*` environment overrides. `assertGitClean` checks the entire working tree even when called from a subdirectory.
 
@@ -459,9 +487,11 @@ The executable target lives in `Sources/cm/`. Each file owns a specific responsi
 | `Configuration/Configuration.swift` | Define entry points, functions, and settings; validate names and the combined call graph. |
 | `Configuration/ConfigurationIO.swift` | Locate and decode configuration files with strict JSON diagnostics. |
 | `Workflow/Workflow.swift` | Decode steps, conditions, and argument expansions. |
+| `Workflow/StringComparison.swift` | Validate and evaluate templated string comparisons. |
 | `Workflow/RuntimeValue.swift` | Store structured results and render argument templates. |
 | `Execution/Runner.swift` | Execute function sequences with scoped variables, directories, and environment. |
 | `Execution/Builtins.swift` | Define and execute builtin operations, including filesystem and Git checks. |
+| `Execution/ExecutableHash.swift` | Hash resolved executable contents without launching them. |
 | `Execution/CommandExecution.swift` | Execute configured commands, capture output, and check exit statuses. |
 | `Execution/ProcessExecution.swift` | Resolve executables and launch/wait for processes with terminal and signal handling. |
 | `CLI/Output.swift` | Format command echoes and redact sensitive values. |

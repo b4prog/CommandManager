@@ -3,11 +3,11 @@ import Foundation
 enum Builtin: String, CaseIterable {
     case inFolder, assertGitRoot, assertGitRepository, export
     case set, inDirectory, pathJoin, assertPath, gitRoot, assertDirectChild, assertGitClean
-    case readJson, jsonGet, log
+    case readJson, jsonGet, log, executableHash
 
     var argumentCount: Int? {
         switch self {
-        case .inFolder, .set, .inDirectory, .readJson, .log: return 1
+        case .inFolder, .set, .inDirectory, .readJson, .log, .executableHash: return 1
         case .export, .assertPath, .assertDirectChild, .jsonGet: return 2
         case .assertGitRoot, .assertGitRepository, .gitRoot, .assertGitClean: return 0
         case .pathJoin: return nil
@@ -15,7 +15,7 @@ enum Builtin: String, CaseIterable {
     }
 
     var returnsValue: Bool {
-        [.set, .pathJoin, .gitRoot, .readJson, .jsonGet].contains(self)
+        [.set, .pathJoin, .gitRoot, .readJson, .jsonGet, .executableHash].contains(self)
     }
 
     func validateCount(_ args: [String]) throws {
@@ -43,6 +43,8 @@ struct BuiltinExecutor {
         case .assertGitRepository: try assertGitRepository(directory, requireRoot: false)
         case .export: try export(name: arguments[0], value: arguments[1], into: &environment)
         case .set: return .string(arguments[0])
+        case .executableHash:
+            return .string(try executableHash(arguments[0], directory: directory, environment: environment))
         case .pathJoin: return .string(try joinedPath(arguments))
         case .assertPath: try assertPath(resolvedPath(arguments[0], from: directory), kind: arguments[1])
         case .gitRoot:
