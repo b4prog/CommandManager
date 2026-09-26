@@ -168,7 +168,7 @@ Use standard JSON: comments and trailing commas are not supported.
 
 ## Step types
 
-Every step has exactly one of `command`, `function`, or `builtin`, plus an optional `args` array. Arguments are strings or explicit array expansions for commands and function calls. Omitted `args` means `[]`. Version 0.4 also supports `when`, `saveAs`, `capture`, `sensitive`, and `label` as described below.
+Every step has exactly one of `command`, `function`, or `builtin`, plus an optional `args` array. Arguments are strings or explicit array expansions for commands and function calls. Omitted `args` means `[]`. Steps also support `when`, `saveAs`, `capture`, `sensitive`, and `label` as described below.
 
 ### Run a command
 
@@ -257,9 +257,7 @@ For a function with a `package` parameter, these arguments contain the package v
 
 Substitution applies only to `args`, not to executable names, function names, built-in names, or descriptions. Values remain single arguments even when they contain spaces. Substituted values are not expanded again, and there is no implicit environment-variable expansion.
 
-## Workflow values and conditions (0.4)
-
-Configurations using these features should set `"minimumVersion": "0.4"`.
+## Workflow values and conditions
 
 Declare boolean options as a name-to-description object on a function:
 
@@ -372,7 +370,7 @@ Both assertions ignore `GIT_*` environment overrides for their internal checks, 
 
 Sets an environment variable for the remaining steps of the current entry point, including called functions. Subsequent command steps inherit it and run directly without a shell. When the entry point finishes, CommandManager restores the variable's previous value or removes it if it was previously absent. The variable name must use `[A-Za-z_][A-Za-z0-9_]*`. This changes CommandManager's execution environment only; it cannot modify the terminal process that launched `cm`.
 
-### Workflow builtins (0.4)
+### Workflow builtins
 
 | Builtin | Arguments | Result / behavior |
 | --- | --- | --- |
