@@ -1,8 +1,10 @@
 # CommandManager
 
-CommandManager is a small command runner written in Swift. Describe reusable functions in a JSON file, then run an entry point with `cm MyFunction`. Each function runs its steps in order and stops as soon as a command, another function, or a built-in operation fails.
+CommandManager turns recurring command-line tasks into reusable workflows you can run with a single command. Use it to automate routines such as building and testing a project, checking a Git repository, or syncing and generating assets.
 
-A step can run an executable, call another function from the configuration, or call a special function implemented in Swift. Commands use separate executable and argument fields, so arguments containing spaces stay intact.
+Define your workflows as named functions in a JSON configuration, then run an entry point with `cm MyFunction`. Functions combine commands, reusable helper functions, and built-in operations into an ordered sequence of steps. Parameters, shared settings, conditional steps, and captured command output let you adapt a workflow to different inputs without duplicating its definition.
+
+CommandManager is written in Swift and runs on macOS. It handles the details of passing arguments, managing working directories and environment variables, and showing which commands are running. If a step fails, the workflow stops so later steps do not run on an unsuccessful result.
 
 ## Requirements
 
