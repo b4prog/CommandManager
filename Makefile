@@ -2,9 +2,8 @@ PREFIX ?= $(HOME)/.local
 SWIFT ?= swift
 SWIFT_TEST_FLAGS ?=
 SWIFT_FORMAT ?= xcrun swift-format
-CODEM8 ?= codem8
 
-.PHONY: build install uninstall test format lint check complexity
+.PHONY: build install uninstall test format lint check
 
 build:
 	$(SWIFT) build --configuration release --product cm
@@ -26,6 +25,3 @@ lint:
 	$(SWIFT_FORMAT) lint --strict --recursive Sources Package.swift Tests/CommandManagerTests
 
 check: lint test
-
-complexity:
-	$(CODEM8) --report-complexity -git-branch

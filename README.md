@@ -452,18 +452,15 @@ The equivalent `make test` target and other development checks are:
 make test
 make format
 make check
-make complexity
 ```
 
 `swift test --disable-xctest` builds the `cm` executable as a test dependency and runs integration tests, including a smoke test that runs a copy of the executable outside the source tree. Tests use temporary configurations and working directories, so they do not need to edit your personal configuration. XCTest and third-party test dependencies are not needed.
 
 `Package.swift` uses Swift tools version 6.0. `swift build` builds the debug executable; `make build` builds the release executable. `make install` builds and installs the release executable, preserving existing configuration. Reinstall after changing source files.
 
-`make format` formats `Sources/`, `Package.swift`, and the Swift tests with `xcrun swift-format`. `make check` checks their formatting and runs the tests. `make complexity` runs `codem8 --report-complexity -git-branch` and requires the separate `codem8` tool.
+`make format` formats `Sources/`, `Package.swift`, and the Swift tests with `xcrun swift-format`. `make check` checks their formatting and runs the tests.
 
-The installed `codem8` version does not support Swift. The required complexity command therefore analyzes zero source files in this all-Swift project; it does not validate the complexity of the implementation or tests.
-
-Keep function bodies free of empty lines, and run the branch complexity report after changing code.
+Keep function bodies free of empty lines.
 
 To remove the default installation:
 
