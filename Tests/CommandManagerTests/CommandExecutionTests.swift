@@ -12,7 +12,7 @@ final class CommandExecutionTests: CMTestCase {
         for arguments in invocations {
             let result = try runCM(arguments)
             assertSuccess(result)
-            #expect(result.stdout.hasPrefix("CommandManager 0.3 —"))
+            #expect(result.stdout.hasPrefix("CommandManager 0.4 —"))
             let alpha = try #require(result.stdout.range(of: "Alpha"))
             let zulu = try #require(result.stdout.range(of: "Zulu"))
             #expect(alpha.lowerBound < zulu.lowerBound)
@@ -47,7 +47,7 @@ final class CommandExecutionTests: CMTestCase {
     func testMissingDefaultConfigurationExplainsSetup() throws {
         let result = try runCM(useConfig: false)
         let output = result.stdout + result.stderr
-        #expect(result.stdout.hasPrefix("CommandManager 0.3 —"))
+        #expect(result.stdout.hasPrefix("CommandManager 0.4 —"))
         #expect(output.contains("cm.json"))
         #expect(output.contains("Application Support"))
         #expect(!(output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))

@@ -167,15 +167,12 @@ final class DirectoryAndGitTests: CMTestCase {
         assertSuccess(try runCM(["main"], cwd: child, environment: environment), output: "")
     }
 
-    @Test func testRunsWithTheSwiftInterpreter() throws {
-        try configure(["main": function([printStep("interpreted")])])
-        let interpreter = ProcessInfo.processInfo.environment["SWIFT"] ?? "swift"
+    @Test func testExecutableRunsOutsideTheSourceTree() throws {
+        try configure(["main": function([printStep("standalone")])])
+        let installed = directory.appendingPathComponent("cm")
+        try FileManager.default.copyItem(at: executableURL(), to: installed)
         let result = try runProcess(
-            interpreter,
-            arguments: [
-                "-module-cache-path", directory.appendingPathComponent("module-cache").path,
-                Self.source.path, "--config", config.path, "main",
-            ], cwd: directory, timeout: 180)
-        assertSuccess(result, output: "interpreted\n")
+            installed.path, arguments: ["--config", config.path, "main"], cwd: directory)
+        assertSuccess(result, output: "standalone\n")
     }
 }

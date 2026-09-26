@@ -82,9 +82,8 @@ func runProcess(
 
 class CMTestCase {
     let directory: URL
-    static let source = URL(fileURLWithPath: #filePath)
+    static let repository = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        .appendingPathComponent("cm.swift")
 
     var config: URL { directory.appendingPathComponent("cm.json") }
     var marker: URL { directory.appendingPathComponent("must-not-exist") }
@@ -129,7 +128,7 @@ class CMTestCase {
             }
             parent.deleteLastPathComponent()
         }
-        let candidate = Self.source.deletingLastPathComponent().appendingPathComponent(".build/debug/cm")
+        let candidate = Self.repository.appendingPathComponent(".build/debug/cm")
         guard FileManager.default.isExecutableFile(atPath: candidate.path) else {
             throw TestProcessError.missingBinary
         }

@@ -6,12 +6,7 @@ let package = Package(
     platforms: [.macOS(.v12)],
     products: [.executable(name: "cm", targets: ["cm"])],
     targets: [
-        .executableTarget(
-            name: "cm",
-            path: ".",
-            exclude: ["Tests", "examples", "README.md", "Makefile", "LICENSE"],
-            sources: ["cm.swift"]
-        ),
+        .executableTarget(name: "cm"),
         .testTarget(
             name: "CommandManagerTests",
             dependencies: ["cm"],
