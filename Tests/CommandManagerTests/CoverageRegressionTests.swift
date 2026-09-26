@@ -105,7 +105,7 @@ final class CoverageRegressionTests: CMTestCase {
             ),
         ]
         for (step, message) in variants {
-            try configure(["main": function([markerStep(), step]), "helper": function([], entry: false)])
+            try configure(["main": function([markerStep(), step])], functions: ["helper": function([])])
             try expectFailure(message)
         }
     }
@@ -165,18 +165,21 @@ final class CoverageRegressionTests: CMTestCase {
     @Test func testSensitiveArraysAndOverlappingSecretsAreRedactedAcrossHelpers() throws {
         let secrets = directory.appendingPathComponent("secrets.json")
         try Data(#"["private","private-token",{"nested":[true,42,null,""]}]"#.utf8).write(to: secrets)
-        try configure([
-            "main": function([
-                ["builtin": "readJson", "args": [secrets.path], "saveAs": "data", "sensitive": true],
-                ["function": "helper"],
-            ]),
-            "helper": function(
-                [
-                    ["builtin": "log", "args": ["private-token|private|true|42|visible"]],
-                    ["command": "/usr/bin/true", "args": ["private-token", "private", "true", "42"]],
-                    ["builtin": "inDirectory", "args": ["private-token"]],
-                ], entry: false),
-        ])
+        try configure(
+            [
+                "main": function([
+                    ["builtin": "readJson", "args": [secrets.path], "saveAs": "data", "sensitive": true],
+                    ["function": "helper"],
+                ])
+            ],
+            functions: [
+                "helper": function(
+                    [
+                        ["builtin": "log", "args": ["private-token|private|true|42|visible"]],
+                        ["command": "/usr/bin/true", "args": ["private-token", "private", "true", "42"]],
+                        ["builtin": "inDirectory", "args": ["private-token"]],
+                    ])
+            ])
         let result = try runCM(["main"])
         assertFailure(result)
         #expect(result.outputWithoutEcho == "*****|*****|*****|*****|visible\n")
@@ -256,15 +259,17 @@ final class CoverageRegressionTests: CMTestCase {
 
     @Test func testFunctionArraySpreadsCheckDynamicArity() throws {
         for (json, succeeds) in [(#"["two words",""]"#, true), ("[]", false), (#"["one"]"#, false)] {
-            try configure([
-                "main": function([
-                    ["command": "/usr/bin/printf", "args": ["%s", json], "capture": "json", "saveAs": "args"],
-                    ["function": "helper", "args": [["spread": "args"]]],
-                ]),
-                "helper": function(
-                    [["builtin": "log", "args": ["<${first}><${second}>"]]], parameters: ["first", "second"],
-                    entry: false),
-            ])
+            try configure(
+                [
+                    "main": function([
+                        ["command": "/usr/bin/printf", "args": ["%s", json], "capture": "json", "saveAs": "args"],
+                        ["function": "helper", "args": [["spread": "args"]]],
+                    ])
+                ],
+                functions: [
+                    "helper": function(
+                        [["builtin": "log", "args": ["<${first}><${second}>"]]], parameters: ["first", "second"])
+                ])
             let result = try runCM(["main"])
             if succeeds {
                 assertSuccess(result, output: "<two words><>\n")

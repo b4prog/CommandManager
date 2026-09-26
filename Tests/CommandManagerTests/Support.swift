@@ -103,18 +103,22 @@ class CMTestCase {
     }
 
     func function(
-        _ steps: [[String: Any]], parameters: [String] = [], settings: [String] = [], entry: Bool = true,
+        _ steps: [[String: Any]], parameters: [String] = [], settings: [String] = [],
         description: String = "Example function"
     ) -> [String: Any] {
         [
-            "description": description, "entryPoint": entry, "parameters": parameters, "settings": settings,
+            "description": description, "parameters": parameters, "settings": settings,
             "steps": steps,
         ]
     }
 
-    func configure(_ functions: [String: [String: Any]], settings: [[String: Any]] = []) throws {
+    func configure(
+        _ entryPoints: [String: [String: Any]] = [:], functions: [String: [String: Any]] = [:],
+        settings: [[String: Any]] = []
+    ) throws {
         try JSONSerialization.data(
-            withJSONObject: ["settings": settings, "functions": functions], options: .sortedKeys
+            withJSONObject: ["settings": settings, "entryPoints": entryPoints, "functions": functions],
+            options: .sortedKeys
         )
         .write(to: config)
     }
@@ -173,9 +177,10 @@ class CMTestCase {
     }
 
     func assertInvalidConfiguration(
-        _ functions: [String: [String: Any]], sourceLocation: SourceLocation = #_sourceLocation
+        _ entryPoints: [String: [String: Any]], functions: [String: [String: Any]] = [:],
+        sourceLocation: SourceLocation = #_sourceLocation
     ) throws {
-        try configure(functions)
+        try configure(entryPoints, functions: functions)
         assertFailure(try runCM(["main"]), sourceLocation: sourceLocation)
         #expect(
             !FileManager.default.fileExists(atPath: marker.path),

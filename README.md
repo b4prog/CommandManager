@@ -66,16 +66,17 @@ The optional root-level `minimumVersion` field specifies the oldest compatible C
 
 ```json
 {
-  "minimumVersion": "0.3",
+  "minimumVersion": "0.4",
+  "entryPoints": {},
   "functions": {}
 }
 ```
 
-Use a string in `major.minor` or `major.minor.patch` form, with nonnegative integer components. Versions are compared numerically: `0.10` is newer than `0.2`, and `0.2` equals `0.2.0`. Prerelease and build suffixes are not supported. If the requirement exceeds the running version, `cm` reports the required and installed versions and exits before executing any commands, including when help is requested. Omitting the field keeps existing configurations valid; an explicit `null` or a malformed version is an error.
+Use a string in `major.minor` or `major.minor.patch` form, with nonnegative integer components. Versions are compared numerically: `0.10` is newer than `0.2`, and `0.2` equals `0.2.0`. Prerelease and build suffixes are not supported. If the requirement exceeds the running version, `cm` reports the required and installed versions and exits before executing any commands, including when help is requested. Omitting the field skips the version requirement; an explicit `null` or a malformed version is an error.
 
 ## Quick start
 
-The example configuration defines three entry points:
+The example configuration defines four entry points:
 
 ```sh
 cm
@@ -115,43 +116,56 @@ Names are case sensitive. Functions accept exactly the number of positional argu
 cm Hello "Bruno Smith"
 ```
 
-## Define functions and settings
+## Define entry points, functions, and settings
 
-The root object contains a `functions` object and can contain a `settings` array. Settings are named string values shared by the configuration, but a function must declare the settings it uses:
+The root object separates public commands in `entryPoints` from internal helpers in `functions`, and can contain a `settings` array. Both definition sections are optional and default to empty objects. Keep `entryPoints` before `functions` and sort names alphabetically within each section for readability; JSON field order does not affect execution. Settings are named string values shared by the configuration, but a function must declare the settings it uses:
 
 ```json
 {
   "settings": [
-    { "name": "FIGMA_TOKEN", "value": "replace-with-your-token" }
+    {
+      "name": "FIGMA_TOKEN",
+      "value": "replace-with-your-token"
+    }
   ],
-  "functions": {
+  "entryPoints": {
     "icons-sync": {
       "description": "Sync Figma icons and generate Unify icons.",
-      "entryPoint": true,
-      "settings": ["FIGMA_TOKEN"],
+      "settings": [
+        "FIGMA_TOKEN"
+      ],
       "steps": [
         {
           "builtin": "export",
-          "args": ["FIGMA_TOKEN", "${FIGMA_TOKEN}"]
+          "args": [
+            "FIGMA_TOKEN",
+            "${FIGMA_TOKEN}"
+          ]
         },
         {
           "command": "node",
-          "args": ["scripts/sync-figma-icons.mjs"]
+          "args": [
+            "scripts/sync-figma-icons.mjs"
+          ]
         },
         {
           "command": "npx",
-          "args": ["nx", "run", "unify:generate-unify-icons"]
+          "args": [
+            "nx",
+            "run",
+            "unify:generate-unify-icons"
+          ]
         }
       ]
     }
-  }
+  },
+  "functions": {}
 }
 ```
 
 | Field | Required | Meaning |
 | --- | --- | --- |
 | `description` | Yes | A nonempty description displayed in help. |
-| `entryPoint` | No | `true` allows direct CLI invocation. Defaults to `false`. |
 | `parameters` | No | Ordered names of required positional arguments. Defaults to `[]`. |
 | `settings` | No | Names of root-level settings available to this function. Defaults to `[]`. |
 | `steps` | Yes | Steps to run in order. |
@@ -162,7 +176,9 @@ Function names allow letters, digits, underscores, and hyphens, starting with a 
 
 The `icons-sync` example exports `FIGMA_TOKEN` and then runs the icon synchronization and generation commands as separate steps, without invoking a shell. Settings are substituted exactly like parameters, but only in a function that lists them. Called functions declare their own settings; settings are not inherited from their caller. Store configuration files containing secrets with appropriate filesystem permissions.
 
-An entry point can call other entry points or internal functions. A function without `"entryPoint": true` is internal: it cannot be invoked directly with `cm` and is omitted from the entry point list. This separates the public commands you use from the helpers they share.
+Definitions in `entryPoints` are available through `cm` and appear in help. Definitions in `functions` are internal: they cannot be invoked directly or requested through function help. Both sections use the fields above, and a `function` step can call a definition in either section. Names must be unique across both sections; duplicate names are rejected before execution.
+
+To migrate an older configuration, move definitions with `"entryPoint": true` into `entryPoints`, leave internal helpers in `functions`, and remove every `entryPoint` field. The old field is rejected with migration guidance. The examples require version `0.4` and use the new layout.
 
 Use standard JSON: comments and trailing commas are not supported.
 
@@ -211,19 +227,34 @@ To call a helper with required arguments:
 
 ```json
 {
-  "functions": {
+  "entryPoints": {
     "BuildRelease": {
       "description": "Build a Swift package in release mode.",
-      "entryPoint": true,
       "steps": [
-        { "function": "Build", "args": ["release"] }
+        {
+          "function": "Build",
+          "args": [
+            "release"
+          ]
+        }
       ]
-    },
+    }
+  },
+  "functions": {
     "Build": {
       "description": "Build using the requested configuration.",
-      "parameters": ["configuration"],
+      "parameters": [
+        "configuration"
+      ],
       "steps": [
-        { "command": "swift", "args": ["build", "--configuration", "${configuration}"] }
+        {
+          "command": "swift",
+          "args": [
+            "build",
+            "--configuration",
+            "${configuration}"
+          ]
+        }
       ]
     }
   }
@@ -399,7 +430,7 @@ All value-producing builtins require `saveAs`; other builtins reject it. Paths r
 
 ## Validation and failures
 
-CommandManager validates the whole configuration before running any step, including functions that are not entry points. It rejects unknown fields, invalid names and types, explicit `null` values, duplicate or unknown settings, settings that were not declared by the function using them, unknown function or built-in references, incorrect argument counts, unknown parameter references, and recursive call cycles. Executable names, argument strings, and setting values must not contain NUL characters. Direct recursion and cycles involving several functions are not supported.
+CommandManager validates both `entryPoints` and `functions` before running any step, including unused definitions. It rejects unknown fields, invalid names and types, explicit `null` values, duplicate or unknown settings, settings that were not declared by the function using them, unknown function or built-in references, incorrect argument counts, unknown parameter references, and recursive call cycles. Executable names, argument strings, and setting values must not contain NUL characters. Direct recursion and cycles involving several functions are not supported.
 
 Every step must succeed before the next begins. A command with a nonzero exit status aborts the current function and every caller; later steps do not run. CommandManager preserves the failing command's exit status. Configuration errors and built-in failures also exit unsuccessfully with a diagnostic.
 
@@ -425,7 +456,7 @@ The executable target lives in `Sources/cm/`. Each file owns a specific responsi
 | --- | --- |
 | `main.swift` | Start the CLI and translate failures into exit statuses. |
 | `CLI/CLI.swift` | Parse CLI options, display help, and invoke the entry point. |
-| `Configuration/Configuration.swift` | Define functions/settings and validate the configuration and call graph. |
+| `Configuration/Configuration.swift` | Define entry points, functions, and settings; validate names and the combined call graph. |
 | `Configuration/ConfigurationIO.swift` | Locate and decode configuration files with strict JSON diagnostics. |
 | `Workflow/Workflow.swift` | Decode steps, conditions, and argument expansions. |
 | `Workflow/RuntimeValue.swift` | Store structured results and render argument templates. |

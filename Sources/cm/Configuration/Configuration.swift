@@ -10,7 +10,6 @@ func isFunctionName(_ value: String) -> Bool {
 
 struct FunctionDefinition: Decodable {
     let description: String
-    let entryPoint: Bool
     let parameters: [String]
     let settings: [String]
     let steps: [Step]
@@ -18,16 +17,21 @@ struct FunctionDefinition: Decodable {
     let requireAnyOption: Bool
 
     enum CodingKeys: String, CodingKey {
-        case description, entryPoint, parameters, settings, steps, options, requireAnyOption
+        case description, parameters, settings, steps, options, requireAnyOption
     }
 
     init(from decoder: Decoder) throws {
+        let keys = try decoder.container(keyedBy: JSONKey.self)
+        if keys.allKeys.contains(where: { $0.stringValue == "entryPoint" }) {
+            throw CommandError(
+                "The entryPoint field is no longer supported. Move public definitions into entryPoints and keep internal helpers in functions."
+            )
+        }
         try rejectUnknownKeys(
             decoder,
-            allowed: ["description", "entryPoint", "parameters", "settings", "steps", "options", "requireAnyOption"])
+            allowed: ["description", "parameters", "settings", "steps", "options", "requireAnyOption"])
         let container = try decoder.container(keyedBy: CodingKeys.self)
         description = try container.decode(String.self, forKey: .description)
-        entryPoint = try container.decodeIfDefined(Bool.self, forKey: .entryPoint) ?? false
         parameters = try container.decodeIfDefined([String].self, forKey: .parameters) ?? []
         settings = try container.decodeIfDefined([String].self, forKey: .settings) ?? []
         steps = try container.decode([Step].self, forKey: .steps)
@@ -58,29 +62,39 @@ struct SettingDefinition: Decodable {
 
 struct Configuration: Decodable {
     let settings: [SettingDefinition]
+    let entryPoints: [String: FunctionDefinition]
     let functions: [String: FunctionDefinition]
+    let definitions: [String: FunctionDefinition]
 
     enum CodingKeys: String, CodingKey {
-        case minimumVersion, settings, functions
+        case minimumVersion, settings, entryPoints, functions
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         try validateMinimumVersion(container.decodeIfDefined(String.self, forKey: .minimumVersion))
-        try rejectUnknownKeys(decoder, allowed: ["minimumVersion", "settings", "functions"])
+        try rejectUnknownKeys(decoder, allowed: ["minimumVersion", "settings", "entryPoints", "functions"])
         settings = try container.decodeIfDefined([SettingDefinition].self, forKey: .settings) ?? []
-        functions = try container.decode([String: FunctionDefinition].self, forKey: .functions)
+        entryPoints = try container.decodeIfDefined([String: FunctionDefinition].self, forKey: .entryPoints) ?? [:]
+        functions = try container.decodeIfDefined([String: FunctionDefinition].self, forKey: .functions) ?? [:]
+        let duplicates = Set(entryPoints.keys).intersection(functions.keys).sorted()
+        guard duplicates.isEmpty else {
+            throw CommandError(
+                "Names must be unique across entryPoints and functions; duplicates: \(duplicates.joined(separator: ", "))."
+            )
+        }
+        definitions = entryPoints.merging(functions, uniquingKeysWith: { entry, _ in entry })
     }
 
     func validate() throws {
         try validateSettings()
-        for name in functions.keys.sorted() {
-            guard let function = functions[name] else { continue }
+        for name in definitions.keys.sorted() {
+            guard let function = definitions[name] else { continue }
             try validateDefinition(name, function: function)
             try validateSteps(name, function: function)
         }
         var visited = Set<String>()
-        for name in functions.keys.sorted() {
+        for name in definitions.keys.sorted() {
             try validateCycles(name, path: [], visited: &visited)
         }
     }
@@ -170,7 +184,7 @@ struct Configuration: Decodable {
                 throw CommandError("Command capture and saveAs must be specified together.")
             }
         case .function(let name):
-            guard let function = functions[name] else { throw CommandError("Unknown function '\(name)'.") }
+            guard let function = definitions[name] else { throw CommandError("Unknown function '\(name)'.") }
             guard step.capture == nil, step.saveAs == nil else {
                 throw CommandError("Function calls cannot capture output or use saveAs.")
             }
@@ -211,7 +225,7 @@ struct Configuration: Decodable {
         guard !path.contains(name) else {
             throw CommandError("Function call cycle: \((path + [name]).joined(separator: " -> ")).")
         }
-        guard !visited.contains(name), let function = functions[name] else { return }
+        guard !visited.contains(name), let function = definitions[name] else { return }
         for step in function.steps {
             if case .function(let callee) = step.target {
                 try validateCycles(callee, path: path + [name], visited: &visited)

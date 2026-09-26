@@ -59,7 +59,7 @@ final class VersionTests: CMTestCase {
     }
 
     private func writeConfiguration(minimum: Any, steps: [[String: Any]]) throws {
-        let document: [String: Any] = ["minimumVersion": minimum, "functions": ["main": function(steps)]]
+        let document: [String: Any] = ["minimumVersion": minimum, "entryPoints": ["main": function(steps)]]
         try JSONSerialization.data(withJSONObject: document).write(to: config)
     }
 }

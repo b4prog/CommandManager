@@ -39,12 +39,12 @@ func printHelp(_ configuration: Configuration?, path: URL) {
 
         Entry points:
         """)
-    let entries = configuration?.functions.filter { $0.value.entryPoint } ?? [:]
+    let entries = configuration?.entryPoints ?? [:]
     for name in entries.keys.sorted() {
         guard let function = entries[name] else { continue }
         print("  \(name)\(function.usage.isEmpty ? "" : " " + function.usage) — \(function.description)")
     }
-    if entries.isEmpty { print("  No entry points configured. Set entryPoint to true to expose a function.") }
+    if entries.isEmpty { print("  No entry points configured. Add public commands to the entryPoints section.") }
     print("\nUse cm --help <function> for function help. Options precede the function name.")
 }
 
@@ -68,10 +68,10 @@ func main(_ arguments: [String]) throws {
         printHelp(configuration, path: path)
         return
     }
-    guard let function = configuration.functions[name] else {
+    guard let function = configuration.definitions[name] else {
         throw CommandError("Unknown function '\(name)'. Run cm to list entry points.")
     }
-    guard function.entryPoint else {
+    guard configuration.entryPoints[name] != nil else {
         throw CommandError("Function '\(name)' is internal; only entry points can be run directly.")
     }
     if options.help {

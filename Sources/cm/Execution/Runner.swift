@@ -10,7 +10,7 @@ struct Runner {
         let initialEnvironment = environment
         defer { environment = initialEnvironment }
         var secrets = Set(configuration.settings.map(\.value).filter { !$0.isEmpty })
-        guard let function = configuration.functions[name] else { throw CommandError("Unknown function '\(name)'.") }
+        guard let function = configuration.entryPoints[name] else { throw CommandError("Unknown function '\(name)'.") }
         let bindings = try bindArguments(arguments, function: function)
         if function.requireAnyOption && !function.options.keys.contains(where: { bindings[$0] == "true" }) {
             printFunctionHelp(name, function: function)
@@ -50,7 +50,7 @@ struct Runner {
         _ name: String, arguments: [String], directory: inout URL, environment: inout [String: String],
         secrets: inout Set<String>
     ) throws {
-        guard let function = configuration.functions[name] else { throw CommandError("Unknown function '\(name)'.") }
+        guard let function = configuration.definitions[name] else { throw CommandError("Unknown function '\(name)'.") }
         var functionDirectory = directory
         var values = try bindArguments(arguments, function: function)
             .merging(settingValues(for: function), uniquingKeysWith: { _, setting in setting }).mapValues(

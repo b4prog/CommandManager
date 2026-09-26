@@ -24,12 +24,12 @@ final class WorkflowTests: CMTestCase {
         var helper = function(
             [
                 ["builtin": "log", "args": ["${name}"], "when": "verbose"]
-            ], parameters: ["name"], entry: false)
+            ], parameters: ["name"])
         helper["options"] = ["verbose": "Print name"]
-        try configure([
-            "main": function([["function": "helper", "args": ["--verbose", "--", "--literal"]]]),
-            "helper": helper,
-        ])
+        try configure(
+            [
+                "main": function([["function": "helper", "args": ["--verbose", "--", "--literal"]]])
+            ], functions: ["helper": helper])
         assertSuccess(try runCM(["main"]), output: "--literal\n")
     }
 
@@ -137,18 +137,21 @@ final class WorkflowTests: CMTestCase {
     }
 
     @Test func testVariablesAreLocalAndExplicitlyPassed() throws {
-        try configure([
-            "main": function([
-                ["builtin": "set", "args": ["parent"], "saveAs": "value"],
-                ["function": "helper", "args": ["${value}"]],
-                ["builtin": "log", "args": ["${value}"]],
-            ]),
-            "helper": function(
-                [
-                    ["builtin": "set", "args": ["child-${input}"], "saveAs": "value"],
+        try configure(
+            [
+                "main": function([
+                    ["builtin": "set", "args": ["parent"], "saveAs": "value"],
+                    ["function": "helper", "args": ["${value}"]],
                     ["builtin": "log", "args": ["${value}"]],
-                ], parameters: ["input"], entry: false),
-        ])
+                ])
+            ],
+            functions: [
+                "helper": function(
+                    [
+                        ["builtin": "set", "args": ["child-${input}"], "saveAs": "value"],
+                        ["builtin": "log", "args": ["${value}"]],
+                    ], parameters: ["input"])
+            ])
         assertSuccess(try runCM(["main"]), output: "child-parent\nparent\n")
     }
 
@@ -174,21 +177,24 @@ final class WorkflowTests: CMTestCase {
     @Test func testPathsAndScopedDirectoryRestoration() throws {
         let child = directory.appendingPathComponent("child")
         try FileManager.default.createDirectory(at: child, withIntermediateDirectories: true)
-        try configure([
-            "main": function([
-                ["builtin": "pathJoin", "args": [directory.path, "child"], "saveAs": "child"],
-                ["builtin": "assertPath", "args": ["${child}", "directory"]],
-                ["builtin": "assertPath", "args": [config.path, "file"]],
-                ["builtin": "assertDirectChild", "args": ["${child}", directory.path]],
-                ["function": "helper", "args": ["${child}"]],
-                ["command": "/bin/pwd"],
-            ]),
-            "helper": function(
-                [
-                    ["builtin": "inDirectory", "args": ["${path}"]],
+        try configure(
+            [
+                "main": function([
+                    ["builtin": "pathJoin", "args": [directory.path, "child"], "saveAs": "child"],
+                    ["builtin": "assertPath", "args": ["${child}", "directory"]],
+                    ["builtin": "assertPath", "args": [config.path, "file"]],
+                    ["builtin": "assertDirectChild", "args": ["${child}", directory.path]],
+                    ["function": "helper", "args": ["${child}"]],
                     ["command": "/bin/pwd"],
-                ], parameters: ["path"], entry: false),
-        ])
+                ])
+            ],
+            functions: [
+                "helper": function(
+                    [
+                        ["builtin": "inDirectory", "args": ["${path}"]],
+                        ["command": "/bin/pwd"],
+                    ], parameters: ["path"])
+            ])
         assertSuccess(try runCM(["main"]), output: "\(child.path)\n\(directory.path)\n")
         try configure(["main": function([["builtin": "assertDirectChild", "args": [directory.path, directory.path]]])])
         assertFailure(try runCM(["main"]))
