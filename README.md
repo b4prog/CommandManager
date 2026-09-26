@@ -407,7 +407,7 @@ Directory changes are scoped to the function that makes them and its nested call
 
 ## Add a built-in in Swift
 
-Configured functions require no Swift changes. To add a new state-aware built-in, edit `Sources/cm/Builtins.swift`:
+Configured functions require no Swift changes. To add a new state-aware built-in, edit `Sources/cm/Execution/Builtins.swift`:
 
 1. Add the operation to the `Builtin` enum and update `argumentCount` and `returnsValue`.
 2. Add its execution case in `BuiltinExecutor.execute`.
@@ -424,16 +424,16 @@ The executable target lives in `Sources/cm/`. Each file owns a specific responsi
 | File | Responsibility |
 | --- | --- |
 | `main.swift` | Start the CLI and translate failures into exit statuses. |
-| `CLI.swift` | Parse CLI options, display help, and invoke the entry point. |
-| `Configuration.swift` | Define functions/settings and validate the configuration and call graph. |
-| `ConfigurationIO.swift` | Locate and decode configuration files with strict JSON diagnostics. |
-| `Workflow.swift` | Decode steps, conditions, and argument expansions. |
-| `RuntimeValue.swift` | Store structured results and render argument templates. |
-| `Runner.swift` | Execute function sequences with scoped variables, directories, and environment. |
-| `Builtins.swift` | Define and execute builtin operations, including filesystem and Git checks. |
-| `CommandExecution.swift` | Execute configured commands, capture output, and check exit statuses. |
-| `ProcessExecution.swift` | Resolve executables and launch/wait for processes with terminal and signal handling. |
-| `Output.swift` | Format command echoes and redact sensitive values. |
+| `CLI/CLI.swift` | Parse CLI options, display help, and invoke the entry point. |
+| `Configuration/Configuration.swift` | Define functions/settings and validate the configuration and call graph. |
+| `Configuration/ConfigurationIO.swift` | Locate and decode configuration files with strict JSON diagnostics. |
+| `Workflow/Workflow.swift` | Decode steps, conditions, and argument expansions. |
+| `Workflow/RuntimeValue.swift` | Store structured results and render argument templates. |
+| `Execution/Runner.swift` | Execute function sequences with scoped variables, directories, and environment. |
+| `Execution/Builtins.swift` | Define and execute builtin operations, including filesystem and Git checks. |
+| `Execution/CommandExecution.swift` | Execute configured commands, capture output, and check exit statuses. |
+| `Execution/ProcessExecution.swift` | Resolve executables and launch/wait for processes with terminal and signal handling. |
+| `CLI/Output.swift` | Format command echoes and redact sensitive values. |
 | `CommandError.swift`, `Version.swift` | Shared errors, argument-count checks, and version compatibility. |
 
 The runner delegates builtin and external-command execution to separate executors. Their implementation helpers stay private to their files. All files compile into one executable; no source files or plugins are loaded at runtime.
