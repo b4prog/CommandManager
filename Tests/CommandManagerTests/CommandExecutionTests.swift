@@ -3,16 +3,16 @@ import Testing
 
 final class CommandExecutionTests: CMTestCase {
     @Test func testHelpListsSortedEntryPointsAndHidesHelpers() throws {
-        try configure([
-            "Zulu": function([], description: "Last public function"),
-            "hiddenHelper": function([], entry: false, description: "Secret helper"),
-            "Alpha": function([], parameters: ["name"], description: "First public function"),
-        ])
+        try configure(
+            [
+                "Zulu": function([], description: "Last public function"),
+                "Alpha": function([], parameters: ["name"], description: "First public function"),
+            ], functions: ["hiddenHelper": function([], description: "Secret helper")])
         let invocations: [[String]] = [[], ["--help"], ["-h"]]
         for arguments in invocations {
             let result = try runCM(arguments)
             assertSuccess(result)
-            #expect(result.stdout.hasPrefix("CommandManager 0.3 —"))
+            #expect(result.stdout.hasPrefix("CommandManager 0.4 —"))
             let alpha = try #require(result.stdout.range(of: "Alpha"))
             let zulu = try #require(result.stdout.range(of: "Zulu"))
             #expect(alpha.lowerBound < zulu.lowerBound)
@@ -37,32 +37,32 @@ final class CommandExecutionTests: CMTestCase {
         assertFailure(try runCM())
     }
 
-    @Test(
-        .enabled(
-            if: !FileManager.default.fileExists(
-                atPath:
-                    FileManager.default.homeDirectoryForCurrentUser
-                    .appendingPathComponent("Library/Application Support/CommandManager/cm.json").path
-            ), "Run only when no personal configuration exists."))
-    func testMissingDefaultConfigurationExplainsSetup() throws {
-        let result = try runCM(useConfig: false)
-        let output = result.stdout + result.stderr
-        #expect(result.stdout.hasPrefix("CommandManager 0.3 —"))
-        #expect(output.contains("cm.json"))
-        #expect(output.contains("Application Support"))
-        #expect(!(output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
+    @Test func testMissingDefaultConfigurationExplainsSetup() throws {
+        var environment = ProcessInfo.processInfo.environment
+        environment["HOME"] = directory.path
+        environment["CFFIXED_USER_HOME"] = directory.path
+        let result = try runCM(environment: environment, useConfig: false)
+        assertSuccess(result)
+        #expect(result.stdout.hasPrefix("CommandManager 0.4 —"))
+        #expect(
+            result.stdout.contains("/\(directory.lastPathComponent)/Library/Application Support/CommandManager/cm.json")
+        )
+        #expect(result.stdout.contains("Configuration file not found."))
+        let failure = try runCM(["main"], environment: environment, useConfig: false)
+        #expect(failure.status == 1)
+        #expect(failure.stderr.contains("Configuration file not found:"))
     }
 
     @Test func testUnknownFunctionAndInternalFunctionCannotRun() throws {
-        try configure(["helper": function([markerStep()], entry: false)])
+        try configure([:], functions: ["helper": function([markerStep()])])
         for name in ["unknown", "helper"] {
             assertFailure(try runCM([name]))
             #expect(!(FileManager.default.fileExists(atPath: marker.path)))
         }
     }
 
-    @Test func testOmittedEntryPointDefaultsToInternal() throws {
-        try configure(["helper": ["description": "An internal function", "steps": []]])
+    @Test func testFunctionsSectionIsInternal() throws {
+        try configure(functions: ["helper": ["description": "An internal function", "steps": []]])
         let result = try runCM()
         assertSuccess(result)
         #expect(!(result.stdout.contains("helper")))
@@ -118,10 +118,9 @@ final class CommandExecutionTests: CMTestCase {
 
     @Test func testCalledFunctionsUseTheirOwnDeclaredSettings() throws {
         try configure(
-            [
-                "main": function([["function": "helper"]]),
-                "helper": function([printStep("${FIGMA_TOKEN}")], settings: ["FIGMA_TOKEN"], entry: false),
-            ], settings: [["name": "FIGMA_TOKEN", "value": "secret-token"]])
+            ["main": function([["function": "helper"]])],
+            functions: ["helper": function([printStep("${FIGMA_TOKEN}")], settings: ["FIGMA_TOKEN"])],
+            settings: [["name": "FIGMA_TOKEN", "value": "secret-token"]])
         assertSuccess(try runCM(["main"]), output: "secret-token\n")
     }
 
@@ -141,46 +140,46 @@ final class CommandExecutionTests: CMTestCase {
     }
 
     @Test func testEachNestedCommandIsEchoedOnce() throws {
-        try configure([
-            "main": function([printStep("first"), ["function": "helper"]]),
-            "helper": function([printStep("second")], entry: false),
-        ])
+        try configure(
+            ["main": function([printStep("first"), ["function": "helper"]])],
+            functions: ["helper": function([printStep("second")])])
         let result = try runCM(["main"])
         assertSuccess(result, output: "first\nsecond\n")
         #expect(result.stdout.components(separatedBy: "\u{1B}[90m❯ \u{1B}[32m").count - 1 == 2)
     }
 
     @Test func testNestedFunctionsReceiveTheirOwnArguments() throws {
-        try configure([
-            "main": function(
-                [["function": "helper", "args": ["${outer}"]], printStep("${outer}")],
-                parameters: ["outer"]
-            ),
-            "helper": function([printStep("nested ${inner}")], parameters: ["inner"], entry: false),
-        ])
+        try configure(
+            [
+                "main": function(
+                    [["function": "helper", "args": ["${outer}"]], printStep("${outer}")],
+                    parameters: ["outer"]
+                )
+            ], functions: ["helper": function([printStep("nested ${inner}")], parameters: ["inner"])])
         assertSuccess(try runCM(["main", "value"]), output: "nested value\nvalue\n")
     }
 
     @Test func testStepsRunInOrderAndAllowOmittedArguments() throws {
-        try configure([
-            "main": function([
-                ["command": "/usr/bin/true"],
-                printStep("one"),
-                ["function": "helper"],
-                printStep("three"),
-            ]),
-            "helper": ["description": "Helper", "steps": [printStep("two")]],
-        ])
+        try configure(
+            [
+                "main": function([
+                    ["command": "/usr/bin/true"],
+                    printStep("one"),
+                    ["function": "helper"],
+                    printStep("three"),
+                ])
+            ], functions: ["helper": ["description": "Helper", "steps": [printStep("two")]]])
         assertSuccess(try runCM(["main"]), output: "one\ntwo\nthree\n")
     }
 
     @Test func testFailedCommandPreservesStatusAndStopsCallers() throws {
-        try configure([
-            "main": function([["function": "helper"], markerStep()]),
-            "helper": function(
-                [["command": "/bin/sh", "args": ["-c", "exit 23"]], markerStep()], entry: false
-            ),
-        ])
+        try configure(
+            ["main": function([["function": "helper"], markerStep()])],
+            functions: [
+                "helper": function(
+                    [["command": "/bin/sh", "args": ["-c", "exit 23"]], markerStep()]
+                )
+            ])
         let result = try runCM(["main"])
         #expect(result.status == 23)
         #expect(result.stdout.components(separatedBy: "\u{1B}[90m❯ \u{1B}[32m").count - 1 == 1)
@@ -246,10 +245,9 @@ final class CommandExecutionTests: CMTestCase {
     }
 
     @Test func testHyphenatedEntryPointsAndHelperNames() throws {
-        try configure([
-            "brew-update": function([["function": "print-message", "args": ["${value}"]]], parameters: ["value"]),
-            "print-message": function([printStep("${message}")], parameters: ["message"], entry: false),
-        ])
+        try configure(
+            ["brew-update": function([["function": "print-message", "args": ["${value}"]]], parameters: ["value"])],
+            functions: ["print-message": function([printStep("${message}")], parameters: ["message"])])
         let help = try runCM()
         assertSuccess(help)
         #expect(help.stdout.contains("brew-update <value>"))

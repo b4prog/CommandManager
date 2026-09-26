@@ -1,86 +1,23 @@
 {
-  "minimumVersion": "0.3",
+  "minimumVersion": "0.4",
   "settings": [
     {
       "name": "FIGMA_TOKEN",
       "value": "replace-with-your-token"
     }
   ],
-  "functions": {
-    "Hello": {
-      "description": "Print a greeting.",
-      "entryPoint": true,
-      "parameters": ["name"],
-      "steps": [
-        {
-          "command": "/usr/bin/printf",
-          "args": ["Hello, %s!\n", "${name}"]
-        }
-      ]
-    },
-    "icons-sync": {
-      "description": "Sync Figma icons and generate Unify icons.",
-      "entryPoint": true,
-      "settings": ["FIGMA_TOKEN"],
-      "steps": [
-        {
-          "function": "invoke-in-frontend"
-        },
-        {
-          "builtin": "export",
-          "args": ["FIGMA_TOKEN", "${FIGMA_TOKEN}"]
-        },
-        {
-          "command": "node",
-          "args": ["scripts/sync-figma-icons.mjs"]
-        },
-        {
-          "command": "npx",
-          "args": ["nx", "run", "unify:generate-unify-icons"]
-        }
-      ]
-    },
-    "invoke-in-backend": {
-      "description": "Require the backend folder as the current working directory.",
-      "entryPoint": false,
-      "steps": [
-        {
-          "builtin": "inFolder",
-          "args": ["backend"]
-        }
-      ]
-    },
-    "invoke-in-frontend": {
-      "description": "Require the frontend folder as the current working directory.",
-      "entryPoint": false,
-      "steps": [
-        {
-          "builtin": "inFolder",
-          "args": ["frontend"]
-        }
-      ]
-    },
-    "GitStatus": {
-      "description": "Show a short status from anywhere in a Git working tree.",
-      "entryPoint": true,
-      "steps": [
-        {
-          "builtin": "assertGitRepository"
-        },
-        {
-          "command": "git",
-          "args": ["status", "--short"]
-        }
-      ]
-    },
+  "entryPoints": {
     "CheckPackage": {
       "description": "Build and test the named Swift package at its Git root.",
-      "entryPoint": true,
-      "parameters": ["folder"],
+      "parameters": [
+        "folder"
+      ],
       "steps": [
         {
           "builtin": "inFolder",
-          "args": ["${folder}"]
+          "args": [
+            "${folder}"
+          ]
         },
         {
           "builtin": "assertGitRoot"
@@ -90,16 +27,106 @@
         }
       ]
     },
+    "GitStatus": {
+      "description": "Show a short status from anywhere in a Git working tree.",
+      "steps": [
+        {
+          "builtin": "assertGitRepository"
+        },
+        {
+          "command": "git",
+          "args": [
+            "status",
+            "--short"
+          ]
+        }
+      ]
+    },
+    "Hello": {
+      "description": "Print a greeting.",
+      "parameters": [
+        "name"
+      ],
+      "steps": [
+        {
+          "command": "/usr/bin/printf",
+          "args": [
+            "Hello, %s!\n",
+            "${name}"
+          ]
+        }
+      ]
+    },
+    "icons-sync": {
+      "description": "Sync Figma icons and generate Unify icons.",
+      "settings": [
+        "FIGMA_TOKEN"
+      ],
+      "steps": [
+        {
+          "function": "invoke-in-frontend"
+        },
+        {
+          "builtin": "export",
+          "args": [
+            "FIGMA_TOKEN",
+            "${FIGMA_TOKEN}"
+          ]
+        },
+        {
+          "command": "node",
+          "args": [
+            "scripts/sync-figma-icons.mjs"
+          ]
+        },
+        {
+          "command": "npx",
+          "args": [
+            "nx",
+            "run",
+            "unify:generate-unify-icons"
+          ]
+        }
+      ]
+    }
+  },
+  "functions": {
     "BuildAndTest": {
       "description": "Build and test the Swift package in the current directory.",
       "steps": [
         {
           "command": "swift",
-          "args": ["build"]
+          "args": [
+            "build"
+          ]
         },
         {
           "command": "swift",
-          "args": ["test"]
+          "args": [
+            "test"
+          ]
+        }
+      ]
+    },
+    "invoke-in-backend": {
+      "description": "Require the backend folder as the current working directory.",
+      "steps": [
+        {
+          "builtin": "inFolder",
+          "args": [
+            "backend"
+          ]
+        }
+      ]
+    },
+    "invoke-in-frontend": {
+      "description": "Require the frontend folder as the current working directory.",
+      "steps": [
+        {
+          "builtin": "inFolder",
+          "args": [
+            "frontend"
+          ]
         }
       ]
     }

@@ -82,9 +82,8 @@ func runProcess(
 
 class CMTestCase {
     let directory: URL
-    static let source = URL(fileURLWithPath: #filePath)
+    static let repository = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        .appendingPathComponent("cm.swift")
 
     var config: URL { directory.appendingPathComponent("cm.json") }
     var marker: URL { directory.appendingPathComponent("must-not-exist") }
@@ -104,18 +103,22 @@ class CMTestCase {
     }
 
     func function(
-        _ steps: [[String: Any]], parameters: [String] = [], settings: [String] = [], entry: Bool = true,
+        _ steps: [[String: Any]], parameters: [String] = [], settings: [String] = [],
         description: String = "Example function"
     ) -> [String: Any] {
         [
-            "description": description, "entryPoint": entry, "parameters": parameters, "settings": settings,
+            "description": description, "parameters": parameters, "settings": settings,
             "steps": steps,
         ]
     }
 
-    func configure(_ functions: [String: [String: Any]], settings: [[String: Any]] = []) throws {
+    func configure(
+        _ entryPoints: [String: [String: Any]] = [:], functions: [String: [String: Any]] = [:],
+        settings: [[String: Any]] = []
+    ) throws {
         try JSONSerialization.data(
-            withJSONObject: ["settings": settings, "functions": functions], options: .sortedKeys
+            withJSONObject: ["settings": settings, "entryPoints": entryPoints, "functions": functions],
+            options: .sortedKeys
         )
         .write(to: config)
     }
@@ -129,7 +132,7 @@ class CMTestCase {
             }
             parent.deleteLastPathComponent()
         }
-        let candidate = Self.source.deletingLastPathComponent().appendingPathComponent(".build/debug/cm")
+        let candidate = Self.repository.appendingPathComponent(".build/debug/cm")
         guard FileManager.default.isExecutableFile(atPath: candidate.path) else {
             throw TestProcessError.missingBinary
         }
@@ -174,9 +177,10 @@ class CMTestCase {
     }
 
     func assertInvalidConfiguration(
-        _ functions: [String: [String: Any]], sourceLocation: SourceLocation = #_sourceLocation
+        _ entryPoints: [String: [String: Any]], functions: [String: [String: Any]] = [:],
+        sourceLocation: SourceLocation = #_sourceLocation
     ) throws {
-        try configure(functions)
+        try configure(entryPoints, functions: functions)
         assertFailure(try runCM(["main"]), sourceLocation: sourceLocation)
         #expect(
             !FileManager.default.fileExists(atPath: marker.path),

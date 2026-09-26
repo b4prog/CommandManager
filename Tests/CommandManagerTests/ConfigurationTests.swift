@@ -8,9 +8,9 @@ final class ConfigurationTests: CMTestCase {
         var invalidStep = markerStep()
         invalidStep["unexpected"] = true
         let variants: [[String: Any]] = [
-            ["functions": ["main": function([markerStep()])], "unexpected": true],
-            ["functions": ["main": invalidFunction]],
-            ["functions": ["main": function([invalidStep])]],
+            ["entryPoints": ["main": function([markerStep()])], "unexpected": true],
+            ["entryPoints": ["main": invalidFunction]],
+            ["entryPoints": ["main": function([invalidStep])]],
         ]
         for variant in variants {
             try JSONSerialization.data(withJSONObject: variant).write(to: config)
@@ -50,18 +50,14 @@ final class ConfigurationTests: CMTestCase {
             ["builtin": "export", "args": ["VARIABLE"]],
         ]
         for step in invalidSteps {
-            try assertInvalidConfiguration([
-                "main": function([markerStep(), step]),
-                "helper": function([], parameters: ["name"], entry: false),
-            ])
+            try assertInvalidConfiguration(
+                ["main": function([markerStep(), step])], functions: ["helper": function([], parameters: ["name"])])
         }
     }
 
     @Test func testUnusedFunctionsAreValidatedBeforeCommandsRun() throws {
-        try assertInvalidConfiguration([
-            "main": function([markerStep()]),
-            "unused": function([printStep("${unknown}")], entry: false),
-        ])
+        try assertInvalidConfiguration(
+            ["main": function([markerStep()])], functions: ["unused": function([printStep("${unknown}")])])
     }
 
     @Test func testInvalidAndDuplicateParameterNamesAreRejected() throws {
@@ -100,30 +96,26 @@ final class ConfigurationTests: CMTestCase {
 
     @Test func testInvalidFunctionNamesAndEmptyDescriptionsAreRejected() throws {
         for name in ["", "two words", "--option", "1number", "name\n"] {
-            try assertInvalidConfiguration([
-                "main": function([markerStep()]),
-                name: function([], entry: false),
-            ])
+            try assertInvalidConfiguration(["main": function([markerStep()])], functions: [name: function([])])
         }
         try assertInvalidConfiguration(["main": function([markerStep()], description: " \n\t")])
     }
 
     @Test func testDirectAndIndirectCyclesAreRejectedBeforeExecution() throws {
         try assertInvalidConfiguration(["main": function([markerStep(), ["function": "main"]])])
-        try assertInvalidConfiguration([
-            "main": function([markerStep(), ["function": "helper"]]),
-            "helper": function([["function": "main"]], entry: false),
-        ])
+        try assertInvalidConfiguration(
+            ["main": function([markerStep(), ["function": "helper"]])],
+            functions: ["helper": function([["function": "main"]])])
     }
 
     @Test func testInvalidJSONAndFieldTypesFail() throws {
         let documents = [
             "{",
             "[]",
-            #"{"functions": []}"#,
-            #"{"functions": {"main": {"description": 3, "steps": []}}}"#,
-            #"{"functions": {"main": {"description": "Missing steps"}}}"#,
-            #"{"functions": {"main": {"description": "Invalid flag", "entryPoint": "yes", "steps": []}}}"#,
+            #"{"entryPoints": []}"#,
+            #"{"entryPoints": {"main": {"description": 3, "steps": []}}}"#,
+            #"{"entryPoints": {"main": {"description": "Missing steps"}}}"#,
+            #"{"entryPoints": {"main": {"description": "Invalid flag", "entryPoint": "yes", "steps": []}}}"#,
         ]
         for document in documents {
             try document.write(to: config, atomically: true, encoding: .utf8)
@@ -132,7 +124,7 @@ final class ConfigurationTests: CMTestCase {
     }
 
     @Test func testExplicitNullFunctionFieldsAreRejected() throws {
-        for key in ["entryPoint", "parameters", "description", "steps"] {
+        for key in ["parameters", "description", "steps"] {
             var invalidFunction = function([markerStep()])
             invalidFunction[key] = NSNull()
             try assertInvalidConfiguration(["main": invalidFunction])
@@ -160,10 +152,8 @@ final class ConfigurationTests: CMTestCase {
             ["builtin": "inFolder", "args": ["child\0ignored"]],
         ]
         for step in steps {
-            try assertInvalidConfiguration([
-                "main": function([markerStep(), step]),
-                "helper": function([], parameters: ["value"], entry: false),
-            ])
+            try assertInvalidConfiguration(
+                ["main": function([markerStep(), step])], functions: ["helper": function([], parameters: ["value"])])
         }
     }
 

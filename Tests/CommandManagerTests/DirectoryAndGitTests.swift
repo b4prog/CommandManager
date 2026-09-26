@@ -29,22 +29,24 @@ final class DirectoryAndGitTests: CMTestCase {
     @Test func testDirectoryChangesAreScopedToFunctionsAndTheirCallees() throws {
         let grandchild = try makeDirectory("child/grandchild")
         let child = grandchild.deletingLastPathComponent()
-        try configure([
-            "main": function([
-                ["command": "/bin/pwd"], ["function": "helper"], ["command": "/bin/pwd"],
-            ]),
-            "helper": function(
-                [
-                    ["builtin": "inFolder", "args": ["child"]], ["command": "/bin/pwd"],
-                    ["function": "nested"], ["command": "/bin/pwd"],
-                ],
-                entry: false),
-            "nested": function(
-                [
-                    ["builtin": "inFolder", "args": ["grandchild"]],
-                    ["command": "/bin/pwd"],
-                ], entry: false),
-        ])
+        try configure(
+            [
+                "main": function([
+                    ["command": "/bin/pwd"], ["function": "helper"], ["command": "/bin/pwd"],
+                ])
+            ],
+            functions: [
+                "helper": function(
+                    [
+                        ["builtin": "inFolder", "args": ["child"]], ["command": "/bin/pwd"],
+                        ["function": "nested"], ["command": "/bin/pwd"],
+                    ]),
+                "nested": function(
+                    [
+                        ["builtin": "inFolder", "args": ["grandchild"]],
+                        ["command": "/bin/pwd"],
+                    ]),
+            ])
         let expected = [directory.path, child.path, grandchild.path, child.path, directory.path]
         assertSuccess(try runCM(["main"]), output: expected.joined(separator: "\n") + "\n")
     }
@@ -167,15 +169,12 @@ final class DirectoryAndGitTests: CMTestCase {
         assertSuccess(try runCM(["main"], cwd: child, environment: environment), output: "")
     }
 
-    @Test func testRunsWithTheSwiftInterpreter() throws {
-        try configure(["main": function([printStep("interpreted")])])
-        let interpreter = ProcessInfo.processInfo.environment["SWIFT"] ?? "swift"
+    @Test func testExecutableRunsOutsideTheSourceTree() throws {
+        try configure(["main": function([printStep("standalone")])])
+        let installed = directory.appendingPathComponent("cm")
+        try FileManager.default.copyItem(at: executableURL(), to: installed)
         let result = try runProcess(
-            interpreter,
-            arguments: [
-                "-module-cache-path", directory.appendingPathComponent("module-cache").path,
-                Self.source.path, "--config", config.path, "main",
-            ], cwd: directory, timeout: 180)
-        assertSuccess(result, output: "interpreted\n")
+            installed.path, arguments: ["--config", config.path, "main"], cwd: directory)
+        assertSuccess(result, output: "standalone\n")
     }
 }

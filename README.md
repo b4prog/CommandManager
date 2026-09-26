@@ -1,12 +1,15 @@
 # CommandManager
 
-CommandManager is a small command runner written in Swift. Describe reusable functions in a JSON file, then run an entry point with `cm MyFunction`. Each function runs its steps in order and stops as soon as a command, another function, or a built-in operation fails.
+CommandManager turns recurring command-line tasks into reusable workflows you can run with a single command. Use it to automate routines such as building and testing a project, checking a Git repository, or syncing and generating assets.
 
-A step can run an executable, call another function from the configuration, or call a special function implemented in Swift. Commands use separate executable and argument fields, so arguments containing spaces stay intact.
+Define your workflows as named functions in a JSON configuration, then run an entry point with `cm MyFunction`. Functions combine commands, reusable helper functions, and built-in operations into an ordered sequence of steps. Parameters, shared settings, conditional steps, and captured command output let you adapt a workflow to different inputs without duplicating its definition.
+
+CommandManager is written in Swift and runs on macOS. It handles the details of passing arguments, managing working directories and environment variables, and showing which commands are running. If a step fails, the workflow stops so later steps do not run on an unsuccessful result.
 
 ## Requirements
 
-- macOS 12 or later with Swift 5.9 or later on `PATH` to run the script.
+- macOS 12 or later.
+- Swift 6 or later on `PATH` to build, install, or run from source. The installed executable does not invoke the Swift compiler.
 - Git for the Git assertion built-ins.
 
 Apple's Xcode Command Line Tools include Swift and Git. If needed, install them with `xcode-select --install`.
@@ -19,14 +22,7 @@ From this repository, run:
 make install
 ```
 
-This installs the executable Swift script as `~/.local/bin/cm`. It does not create or overwrite your configuration. To choose another installation prefix, use `make install PREFIX=/your/prefix`; the executable is placed in that prefix's `bin` directory.
-
-Alternatively, install the script manually:
-
-```sh
-install -d "$HOME/.local/bin"
-install -m 755 cm.swift "$HOME/.local/bin/cm"
-```
+This builds a release executable and installs it as `~/.local/bin/cm`. It does not create or overwrite your configuration. To choose another installation prefix, use `make install PREFIX=/your/prefix`; the executable is placed in that prefix's `bin` directory.
 
 Ensure `~/.local/bin` is on your `PATH`. For the default macOS shell, add this line to `~/.zshrc` if it is not already configured, then open a new terminal:
 
@@ -34,7 +30,7 @@ Ensure `~/.local/bin` is on your `PATH`. For the default macOS shell, add this l
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-You can also run the script from the repository with `swift cm.swift` or `./cm.swift`.
+You can also run from the repository with `swift run cm`, for example `swift run cm --help`. The former single-file `swift cm.swift` and `./cm.swift` entry points have been replaced by the package executable.
 
 ## Configuration location
 
@@ -70,16 +66,17 @@ The optional root-level `minimumVersion` field specifies the oldest compatible C
 
 ```json
 {
-  "minimumVersion": "0.3",
+  "minimumVersion": "0.4",
+  "entryPoints": {},
   "functions": {}
 }
 ```
 
-Use a string in `major.minor` or `major.minor.patch` form, with nonnegative integer components. Versions are compared numerically: `0.10` is newer than `0.2`, and `0.2` equals `0.2.0`. Prerelease and build suffixes are not supported. If the requirement exceeds the running version, `cm` reports the required and installed versions and exits before executing any commands, including when help is requested. Omitting the field keeps existing configurations valid; an explicit `null` or a malformed version is an error.
+Use a string in `major.minor` or `major.minor.patch` form, with nonnegative integer components. Versions are compared numerically: `0.10` is newer than `0.2`, and `0.2` equals `0.2.0`. Prerelease and build suffixes are not supported. If the requirement exceeds the running version, `cm` reports the required and installed versions and exits before executing any commands, including when help is requested. Omitting the field skips the version requirement; an explicit `null` or a malformed version is an error.
 
 ## Quick start
 
-The example configuration defines three entry points:
+The example configuration defines four entry points:
 
 ```sh
 cm
@@ -89,7 +86,7 @@ cm CheckPackage CommandManager
 cm icons-sync
 ```
 
-- `cm` shows the current version (`0.3`) and lists the available entry points and their descriptions.
+- `cm` shows the current version (`0.4`) and lists the available entry points and their descriptions.
 - `Hello` prints a greeting using a required `name` argument.
 - `GitStatus` prints a short Git status when run inside a Git working tree.
 - `CheckPackage` enters the named folder, verifies that it is a Git repository root, then builds and tests its Swift package. Run it from the named folder itself or its immediate parent.
@@ -111,66 +108,83 @@ cm [--config PATH] [--help | -h] [FUNCTION [ARGUMENTS...]]
 | `cm Hello Bruno` | Run `Hello` with `name` set to `Bruno`. |
 | `cm --config ./cm.json Hello Bruno` | Run using the specified configuration. |
 
-Options belong before the function name. Everything after the function name is a function argument, including values such as `--help` or `--config`. For example, `cm Hello --help` greets the literal name `--help`; use `cm --help Hello` for help about the function.
+Options belong before the function name. Everything after the function name is a function argument. For functions without declared boolean options, values such as `--help` or `--config` remain literal arguments. For example, `cm Hello --help` greets the literal name `--help`; use `cm --help Hello` for help about the function.
 
-Names are case sensitive. Functions accept exactly the number of arguments declared by their `parameters` array. Quote arguments containing spaces as you normally would in your shell:
+Names are case sensitive. Functions accept exactly the number of positional arguments declared by their `parameters` array. Functions can additionally declare boolean `options` as described below. Quote arguments containing spaces as you normally would in your shell:
 
 ```sh
 cm Hello "Bruno Smith"
 ```
 
-## Define functions and settings
+## Define entry points, functions, and settings
 
-The root object contains a `functions` object and can contain a `settings` array. Settings are named string values shared by the configuration, but a function must declare the settings it uses:
+The root object separates public commands in `entryPoints` from internal helpers in `functions`, and can contain a `settings` array. Both definition sections are optional and default to empty objects. Keep `entryPoints` before `functions` and sort names alphabetically within each section for readability; JSON field order does not affect execution. Settings are named string values shared by the configuration, but a function must declare the settings it uses:
 
 ```json
 {
   "settings": [
-    { "name": "FIGMA_TOKEN", "value": "replace-with-your-token" }
+    {
+      "name": "FIGMA_TOKEN",
+      "value": "replace-with-your-token"
+    }
   ],
-  "functions": {
+  "entryPoints": {
     "icons-sync": {
       "description": "Sync Figma icons and generate Unify icons.",
-      "entryPoint": true,
-      "settings": ["FIGMA_TOKEN"],
+      "settings": [
+        "FIGMA_TOKEN"
+      ],
       "steps": [
         {
           "builtin": "export",
-          "args": ["FIGMA_TOKEN", "${FIGMA_TOKEN}"]
+          "args": [
+            "FIGMA_TOKEN",
+            "${FIGMA_TOKEN}"
+          ]
         },
         {
           "command": "node",
-          "args": ["scripts/sync-figma-icons.mjs"]
+          "args": [
+            "scripts/sync-figma-icons.mjs"
+          ]
         },
         {
           "command": "npx",
-          "args": ["nx", "run", "unify:generate-unify-icons"]
+          "args": [
+            "nx",
+            "run",
+            "unify:generate-unify-icons"
+          ]
         }
       ]
     }
-  }
+  },
+  "functions": {}
 }
 ```
 
 | Field | Required | Meaning |
 | --- | --- | --- |
 | `description` | Yes | A nonempty description displayed in help. |
-| `entryPoint` | No | `true` allows direct CLI invocation. Defaults to `false`. |
 | `parameters` | No | Ordered names of required positional arguments. Defaults to `[]`. |
 | `settings` | No | Names of root-level settings available to this function. Defaults to `[]`. |
 | `steps` | Yes | Steps to run in order. |
+| `options` | No | Object mapping boolean option names to help descriptions. Defaults to `{}`. |
+| `requireAnyOption` | No | Show function help without running steps when no declared option is selected. Defaults to `false`; applies to CLI entry points. |
 
 Function names allow letters, digits, underscores, and hyphens, starting with a letter or underscore: `[A-Za-z_][A-Za-z0-9_-]*`. For example, `brew-update` is a valid entry point or helper name. Parameter and setting names use `[A-Za-z_][A-Za-z0-9_]*`; each list must be unique, and a function cannot use the same name for a parameter and a setting.
 
 The `icons-sync` example exports `FIGMA_TOKEN` and then runs the icon synchronization and generation commands as separate steps, without invoking a shell. Settings are substituted exactly like parameters, but only in a function that lists them. Called functions declare their own settings; settings are not inherited from their caller. Store configuration files containing secrets with appropriate filesystem permissions.
 
-An entry point can call other entry points or internal functions. A function without `"entryPoint": true` is internal: it cannot be invoked directly with `cm` and is omitted from the entry point list. This separates the public commands you use from the helpers they share.
+Definitions in `entryPoints` are available through `cm` and appear in help. Definitions in `functions` are internal: they cannot be invoked directly or requested through function help. Both sections use the fields above, and a `function` step can call a definition in either section. Names must be unique across both sections; duplicate names are rejected before execution.
+
+To migrate an older configuration, move definitions with `"entryPoint": true` into `entryPoints`, leave internal helpers in `functions`, and remove every `entryPoint` field. The old field is rejected with migration guidance. The examples require version `0.4` and use the new layout.
 
 Use standard JSON: comments and trailing commas are not supported.
 
 ## Step types
 
-Every step has exactly one of `command`, `function`, or `builtin`, plus an optional `args` array of strings. Omitted `args` means `[]`.
+Every step has exactly one of `command`, `function`, or `builtin`, plus an optional `args` array. Arguments are strings or explicit array expansions for commands and function calls. Omitted `args` means `[]`. Steps also support `when`, `saveAs`, `capture`, `sensitive`, and `label` as described below.
 
 ### Run a command
 
@@ -181,11 +195,11 @@ Every step has exactly one of `command`, `function`, or `builtin`, plus an optio
 }
 ```
 
-Executables are resolved using `PATH`, or you can specify an executable path. Commands inherit the environment and standard input, output, and error streams. Each command runs in the entry point's current working directory, shared across its function calls.
+Executables are resolved using `PATH`, or you can specify an executable path. Commands inherit the environment and standard input, output, and error streams. Each command runs in its current function's working directory, inherited by nested function calls.
 
 Interactive commands share the terminal's foreground process group with `cm`, so confirmation prompts can read your input normally. Terminal signals such as Ctrl+C reach the command as well as `cm`.
 
-Before each configured command runs, CommandManager writes a grey `❯ ` prefix followed by its executable and expanded arguments in green to standard output. The color resets before the command's own output. Arguments are displayed with shell-style quoting when needed, including empty values, spaces, and special characters. For example, the greeting command for `cm Hello "Bruno Smith"` shows the expanded name as `'Bruno Smith'`. Every nonempty setting value in a printed command is replaced with `*****`; the command still receives the original value. These echoes, including their ANSI color sequences, are also present when output is redirected. Internal Git checks performed by built-ins are not echoed.
+Before each configured command runs, CommandManager writes a grey `❯ ` prefix followed by its executable and expanded arguments in green to standard output. The color resets before the command's own output. Arguments are displayed with shell-style quoting when needed, including empty values, spaces, and special characters. For example, the greeting command for `cm Hello "Bruno Smith"` shows the expanded name as `'Bruno Smith'`. Every nonempty setting value and registered sensitive runtime value in a printed command is replaced with `*****`; the command still receives the original value. These echoes, including their ANSI color sequences, are also present when output is redirected. Internal Git checks performed by built-ins are not echoed.
 
 Arguments are passed directly to the executable. Spaces, `*`, `~`, pipes, redirection, and environment variable syntax have no special shell meaning. For example, `"args": ["*.swift"]` passes one literal argument, and `"args": ["~/Downloads"]` does not expand to your home directory. JSON still requires its own escaping, such as `\n` for a newline.
 
@@ -213,19 +227,34 @@ To call a helper with required arguments:
 
 ```json
 {
-  "functions": {
+  "entryPoints": {
     "BuildRelease": {
       "description": "Build a Swift package in release mode.",
-      "entryPoint": true,
       "steps": [
-        { "function": "Build", "args": ["release"] }
+        {
+          "function": "Build",
+          "args": [
+            "release"
+          ]
+        }
       ]
-    },
+    }
+  },
+  "functions": {
     "Build": {
       "description": "Build using the requested configuration.",
-      "parameters": ["configuration"],
+      "parameters": [
+        "configuration"
+      ],
       "steps": [
-        { "command": "swift", "args": ["build", "--configuration", "${configuration}"] }
+        {
+          "command": "swift",
+          "args": [
+            "build",
+            "--configuration",
+            "${configuration}"
+          ]
+        }
       ]
     }
   }
@@ -246,7 +275,7 @@ Built-ins implement operations that need access to CommandManager's execution st
 
 ## Arguments and substitution
 
-Use `${parameter}` or a declared `${setting}` inside any step argument to insert the corresponding value. A placeholder can be the whole string or part of it:
+Use `${parameter}`, a declared `${setting}`, an option name, or a previously saved runtime value inside any step argument to insert the corresponding scalar value. A placeholder can be the whole string or part of it:
 
 ```json
 {
@@ -258,6 +287,76 @@ Use `${parameter}` or a declared `${setting}` inside any step argument to insert
 For a function with a `package` parameter, these arguments contain the package value, the literal text `Price: $5`, and the literal text `${package}` respectively. `$$` escapes a dollar sign. Dollar signs that do not begin `${...}` or `$$`, such as `$HOME` or `$1`, are preserved literally.
 
 Substitution applies only to `args`, not to executable names, function names, built-in names, or descriptions. Values remain single arguments even when they contain spaces. Substituted values are not expanded again, and there is no implicit environment-variable expansion.
+
+## Workflow values and conditions
+
+Declare boolean options as a name-to-description object on a function:
+
+```json
+"options": { "build": "Build the package", "check": "Check the package", "all": "Run everything" },
+"requireAnyOption": true
+```
+
+Invoke with `cm MyFunction --build --check`. Unselected options are false. Names are case sensitive, follow the function-name syntax, and cannot conflict with parameters or declared settings. Unknown `--options` fail. Use `--` to end option parsing when passing a positional value starting with `--`. Functions without declared options retain the previous literal-argument behavior. `--all` has no special built-in meaning: explicitly include it in the relevant conditions. Helper calls may pass declared options in their `args`; helpers do not inherit the caller's option values. Only literal helper arguments without placeholders are parsed as options or the `--` terminator. Substituted values and spread elements remain positional, even when they start with `--`.
+
+A step's optional `when` is a variable name or a condition object with exactly one of `any`, `all`, `not`, `equals`, or `notEquals`:
+
+```json
+{ "function": "Build", "when": { "any": ["build", "all"] } }
+```
+
+Conditions can nest. `any` and `all` require nonempty arrays and short-circuit in order. Values must be JSON booleans or the strings `true`/`false`. The condition is evaluated before arguments, so a skipped step does not attempt to resolve its arguments. `label` supplies a human-readable name included in failure diagnostics.
+
+### Compare values
+
+`equals` and `notEquals` each take exactly two string templates. Comparisons are case sensitive and use the rendered text, including whitespace. Use `${name}` to reference a parameter, declared setting, option, or earlier saved value; other strings are literals. `$$` escapes a dollar sign as it does in command arguments.
+
+```json
+{
+  "command": "tool",
+  "args": ["refresh"],
+  "when": {
+    "all": [
+      { "notEquals": ["${after}", ""] },
+      { "notEquals": ["${before}", "${after}"] }
+    ]
+  }
+}
+```
+
+Comparisons compose with `any`, `all`, and `not`, retaining short-circuit evaluation. Unknown references and malformed operands fail configuration validation. A skipped output referenced by an evaluated comparison fails at runtime. JSON booleans and numbers use the same scalar rendering as arguments; objects, arrays, and null cannot be interpolated. These are text comparisons, not numeric ordering or shell expressions.
+
+### Save and use values
+
+Value-producing builtins require `saveAs`; it defines a unique function-local identifier:
+
+```json
+{ "builtin": "set", "args": ["release-${name}"], "saveAs": "releaseName" }
+```
+
+Saved values cannot overwrite parameters, declared settings, options, or earlier outputs. Helpers have their own local values; pass scalar values explicitly through their arguments. Forward references are rejected before execution. A reference to an earlier conditional output is allowed, but fails at runtime if the producing step was skipped. Guard dependent steps with the same condition when needed.
+
+JSON objects and arrays remain structured. Scalar substitution does not serialize them or split them into words. `jsonGet` selects fields; an explicit spread expands a string array into separate arguments:
+
+```json
+{ "command": "tool", "args": ["run", { "spread": "extraArgs" }, "--verbose"] }
+```
+
+Each array element remains exactly one argument, including empty strings or values containing spaces. Only string arrays can be spread. Commands and configured function calls support spreads; builtins do not. Dynamic function argument counts are checked at runtime.
+
+### Capture command output
+
+Specify both `capture` and `saveAs` on a command:
+
+```json
+{ "command": "tool", "args": ["describe", "--json"], "capture": "json", "saveAs": "details" }
+```
+
+Capture modes are `text` (exact UTF-8 stdout), `trimmed` (remove leading/trailing whitespace and newlines), and `json` (decode stdout as JSON). Captured stdout is not printed. Stderr and stdin remain attached to the caller, and nonzero exits still abort execution with the original status. Output is collected in a private temporary file, removed on completion or handled failure, avoiding pipe-buffer deadlocks for large output. Uncaptured commands retain their existing terminal behavior.
+
+### Sensitive values
+
+Add `"sensitive": true` to a step that saves a result. Its scalar values are registered for redaction in subsequent command echoes, `log` messages, and execution error messages, including across helper calls. Marking a JSON object sensitive registers its scalar descendants. Settings remain redacted automatically. Redaction applies to CommandManager's messages; it does not filter output or stderr printed by external commands. Avoid passing sensitive values to commands that print them.
 
 ## Built-in functions
 
@@ -321,9 +420,45 @@ Both assertions ignore `GIT_*` environment overrides for their internal checks, 
 
 Sets an environment variable for the remaining steps of the current entry point, including called functions. Subsequent command steps inherit it and run directly without a shell. When the entry point finishes, CommandManager restores the variable's previous value or removes it if it was previously absent. The variable name must use `[A-Za-z_][A-Za-z0-9_]*`. This changes CommandManager's execution environment only; it cannot modify the terminal process that launched `cm`.
 
+### Workflow builtins
+
+| Builtin | Arguments | Result / behavior |
+| --- | --- | --- |
+| `set` | value | Save the substituted string using `saveAs`. |
+| `executableHash` | executable name or path | Save the executable's SHA-256 digest, or an empty string if no matching executable exists. |
+| `inDirectory` | path | Enter an existing absolute or relative directory; restore the caller's directory on function return. |
+| `pathJoin` | base, component… | Save a joined path. Requires a nonempty base; later components must be nonempty relative paths. Does not check existence or expand `~`. |
+| `assertPath` | path, kind | Require a regular `file` or a `directory`. |
+| `gitRoot` | none | Save the current Git working tree root, including linked worktrees. |
+| `assertDirectChild` | child, parent | Require existing directories and verify direct parentage after resolving symlinks. |
+| `assertGitClean` | none | Require a Git working tree with no staged, unstaged, or untracked changes. Ignored files do not count. |
+| `readJson` | path | Read and save a JSON value. |
+| `jsonGet` | variable name, JSON pointer | Select and save a required JSON value; missing, null, and whitespace-only strings fail. |
+| `log` | message | Print a message with sensitive values redacted. |
+
+`executableHash` uses the same executable resolution as command steps: the current execution environment's `PATH` (including previous `export` steps), or an explicit absolute/relative path. It follows symlinks, hashes file contents in chunks without launching the executable, and returns a lowercase hexadecimal SHA-256 digest. Non-executable files and directories do not match; empty executable files have the normal nonempty SHA-256 digest of empty content. A resolved executable that cannot be read causes a failure, rather than returning an empty hash. Special files are rejected. An empty executable name is invalid.
+
+```json
+{ "builtin": "executableHash", "args": ["tool"], "saveAs": "before" }
+```
+
+Capture a second hash after an update and combine `notEquals` conditions to run a follow-up only when the executable exists and its contents changed. The lookup runs again each time, so changes to `PATH` or the executable selected by it are respected.
+
+All value-producing builtins require `saveAs`; other builtins reject it. Paths resolve relative to the current function's directory. The new Git builtins, like existing Git assertions, ignore `GIT_*` environment overrides. `assertGitClean` checks the entire working tree even when called from a subdirectory.
+
+`jsonGet` uses a literal variable name as its first argument, not `${...}`. Its second argument uses JSON pointer syntax: `/items/0/id`, `/posthog-api-key`, or an empty string for the entire value. Escape a key's `/` as `~1` and `~` as `~0`. Array indices are zero-based. Objects and arrays can be selected for further extraction or expansion.
+
+```json
+{ "builtin": "readJson", "args": ["settings.json"], "saveAs": "settingsData", "sensitive": true }
+```
+
+```json
+{ "builtin": "jsonGet", "args": ["settingsData", "/service/token"], "saveAs": "token" }
+```
+
 ## Validation and failures
 
-CommandManager validates the whole configuration before running any step, including functions that are not entry points. It rejects unknown fields, invalid names and types, explicit `null` values, duplicate or unknown settings, settings that were not declared by the function using them, unknown function or built-in references, incorrect argument counts, unknown parameter references, and recursive call cycles. Executable names, argument strings, and setting values must not contain NUL characters. Direct recursion and cycles involving several functions are not supported.
+CommandManager validates both `entryPoints` and `functions` before running any step, including unused definitions. It rejects unknown fields, invalid names and types, explicit `null` values, duplicate or unknown settings, settings that were not declared by the function using them, unknown function or built-in references, incorrect argument counts, unknown parameter references, and recursive call cycles. Executable names, argument strings, and setting values must not contain NUL characters. Direct recursion and cycles involving several functions are not supported.
 
 Every step must succeed before the next begins. A command with a nonzero exit status aborts the current function and every caller; later steps do not run. CommandManager preserves the failing command's exit status. Configuration errors and built-in failures also exit unsuccessfully with a diagnostic.
 
@@ -331,15 +466,38 @@ Directory changes are scoped to the function that makes them and its nested call
 
 ## Add a built-in in Swift
 
-Configured functions require no Swift changes. To add a new state-aware built-in, edit `cm.swift`:
+Configured functions require no Swift changes. To add a new state-aware built-in, edit `Sources/cm/Execution/Builtins.swift`:
 
-1. Add the operation to the `Builtin` enum and update its `argumentCount` property.
-2. Add its execution case in `Runner.executeBuiltin`.
-3. Implement the operation using the supplied directory URL and `CommandError` for failures. Update the shared directory URL when the operation should affect later steps anywhere in the entry point's call hierarchy.
+1. Add the operation to the `Builtin` enum and update `argumentCount` and `returnsValue`.
+2. Add its execution case in `BuiltinExecutor.execute`.
+3. Implement the operation using the supplied directory URL and `CommandError` for failures. Return a `RuntimeValue` for value-producing operations. Directory changes affect the current function and nested calls.
 4. Add tests for success, invalid arguments, and relevant failures.
 5. Reinstall with `make install` to update your installed copy.
 
 The new operation can then be referenced by a `"builtin"` step. CommandManager does not load external Swift plugins from the configuration.
+
+## Source layout
+
+The executable target lives in `Sources/cm/`. Each file owns a specific responsibility:
+
+| File | Responsibility |
+| --- | --- |
+| `main.swift` | Start the CLI and translate failures into exit statuses. |
+| `CLI/CLI.swift` | Parse CLI options, display help, and invoke the entry point. |
+| `Configuration/Configuration.swift` | Define entry points, functions, and settings; validate names and the combined call graph. |
+| `Configuration/ConfigurationIO.swift` | Locate and decode configuration files with strict JSON diagnostics. |
+| `Workflow/Workflow.swift` | Decode steps, conditions, and argument expansions. |
+| `Workflow/StringComparison.swift` | Validate and evaluate templated string comparisons. |
+| `Workflow/RuntimeValue.swift` | Store structured results and render argument templates. |
+| `Execution/Runner.swift` | Execute function sequences with scoped variables, directories, and environment. |
+| `Execution/Builtins.swift` | Define and execute builtin operations, including filesystem and Git checks. |
+| `Execution/ExecutableHash.swift` | Hash resolved executable contents without launching them. |
+| `Execution/CommandExecution.swift` | Execute configured commands, capture output, and check exit statuses. |
+| `Execution/ProcessExecution.swift` | Resolve executables and launch/wait for processes with terminal and signal handling. |
+| `CLI/Output.swift` | Format command echoes and redact sensitive values. |
+| `CommandError.swift`, `Version.swift` | Shared errors, argument-count checks, and version compatibility. |
+
+The runner delegates builtin and external-command execution to separate executors. Their implementation helpers stay private to their files. All files compile into one executable; no source files or plugins are loaded at runtime.
 
 ## Development
 
@@ -355,18 +513,15 @@ The equivalent `make test` target and other development checks are:
 make test
 make format
 make check
-make complexity
 ```
 
-`swift test --disable-xctest` builds the `cm` executable as a test dependency and runs integration tests, including a smoke test of the standalone Swift script through the interpreter. Tests use temporary configurations and working directories, so they do not need to edit your personal configuration. XCTest and third-party test dependencies are not needed.
+`swift test --disable-xctest` builds the `cm` executable as a test dependency and runs integration tests, including a smoke test that runs a copy of the executable outside the source tree. Tests use temporary configurations and working directories, so they do not need to edit your personal configuration. XCTest and third-party test dependencies are not needed.
 
-`Package.swift` uses Swift tools version 6.0 and supports testing and an optional compiled executable via `swift build`. `cm.swift` remains a standalone script compatible with Swift 5.9, and `make install` installs that script.
+`Package.swift` uses Swift tools version 6.0. `swift build` builds the debug executable; `make build` builds the release executable. `make install` builds and installs the release executable, preserving existing configuration. Reinstall after changing source files.
 
-`make format` formats `cm.swift`, `Package.swift`, and the Swift tests with `xcrun swift-format`. `make check` checks their formatting and runs the tests. `make complexity` runs `codem8 --report-complexity -git-branch` and requires the separate `codem8` tool.
+`make format` formats `Sources/`, `Package.swift`, and the Swift tests with `xcrun swift-format`. `make check` checks their formatting and runs the tests.
 
-The installed `codem8` version does not support Swift. The required complexity command therefore analyzes zero source files in this all-Swift project; it does not validate the complexity of the implementation or tests.
-
-Keep function bodies free of empty lines, and run the branch complexity report after changing code.
+Keep function bodies free of empty lines.
 
 To remove the default installation:
 
