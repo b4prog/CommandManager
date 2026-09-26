@@ -46,6 +46,12 @@ enum CaptureMode: String, Decodable {
     case text, trimmed, json
 }
 
+/// Keeps option syntax distinct from runtime data until function arguments are bound.
+struct RenderedArgument {
+    let value: String
+    let allowsOptionParsing: Bool
+}
+
 enum StepArgument: Decodable {
     case template(String)
     case spread(String)
@@ -70,16 +76,21 @@ enum StepArgument: Decodable {
         }
     }
 
-    func render(_ values: [String: RuntimeValue]) throws -> [String] {
+    func render(_ values: [String: RuntimeValue]) throws -> [RenderedArgument] {
         switch self {
-        case .template(let text): return [try ArgumentTemplate(text).renderRuntime(values: values)]
+        case .template(let text):
+            let template = try ArgumentTemplate(text)
+            return [
+                RenderedArgument(
+                    value: try template.renderRuntime(values: values), allowsOptionParsing: !template.hasParameters)
+            ]
         case .spread(let name):
             guard case .array(let array) = values[name] else { throw CommandError("Expected string array '\(name)'.") }
             return try array.map { value in
                 guard case .string(let text) = value else {
                     throw CommandError("Array '\(name)' must contain only strings.")
                 }
-                return text
+                return RenderedArgument(value: text, allowsOptionParsing: false)
             }
         }
     }

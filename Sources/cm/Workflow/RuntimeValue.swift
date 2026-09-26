@@ -81,6 +81,13 @@ struct ArgumentTemplate {
         }
     }
 
+    var hasParameters: Bool {
+        parts.contains { part in
+            if case .parameter = part { return true }
+            return false
+        }
+    }
+
     func validate(parameters: Set<String>) throws {
         for case .parameter(let name) in parts {
             guard parameters.contains(name) else {

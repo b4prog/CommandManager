@@ -297,7 +297,7 @@ Declare boolean options as a name-to-description object on a function:
 "requireAnyOption": true
 ```
 
-Invoke with `cm MyFunction --build --check`. Unselected options are false. Names are case sensitive, follow the function-name syntax, and cannot conflict with parameters or declared settings. Unknown `--options` fail. Use `--` to end option parsing when passing a positional value starting with `--`. Functions without declared options retain the previous literal-argument behavior. `--all` has no special built-in meaning: explicitly include it in the relevant conditions. Helper calls may pass declared options in their `args`; helpers do not inherit the caller's option values.
+Invoke with `cm MyFunction --build --check`. Unselected options are false. Names are case sensitive, follow the function-name syntax, and cannot conflict with parameters or declared settings. Unknown `--options` fail. Use `--` to end option parsing when passing a positional value starting with `--`. Functions without declared options retain the previous literal-argument behavior. `--all` has no special built-in meaning: explicitly include it in the relevant conditions. Helper calls may pass declared options in their `args`; helpers do not inherit the caller's option values. Only literal helper arguments without placeholders are parsed as options or the `--` terminator. Substituted values and spread elements remain positional, even when they start with `--`.
 
 A step's optional `when` is a variable name or a condition object with exactly one of `any`, `all`, `not`, `equals`, or `notEquals`:
 

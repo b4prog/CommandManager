@@ -33,6 +33,59 @@ final class WorkflowTests: CMTestCase {
         assertSuccess(try runCM(["main"]), output: "--literal\n")
     }
 
+    @Test(arguments: ["--verbose", "--other", "--"])
+    func testDynamicHelperArgumentsRemainPositional(value: String) throws {
+        var helper = function(
+            [["builtin": "log", "args": ["${name}|${verbose}"]]], parameters: ["name"])
+        helper["options"] = ["verbose": "Print name"]
+        try configure(
+            [
+                "main": function(
+                    [
+                        ["function": "helper", "args": ["${name}"]],
+                        ["builtin": "set", "args": ["${name}"], "saveAs": "saved"],
+                        ["function": "helper", "args": ["${saved}", "--verbose"]],
+                        ["function": "helper", "args": ["--verbose", "${name}"]],
+                    ], parameters: ["name"])
+            ], functions: ["helper": helper])
+        assertSuccess(try runCM(["main", value]), output: "\(value)|false\n\(value)|true\n\(value)|true\n")
+    }
+
+    @Test func testSpreadHelperArgumentsRemainPositional() throws {
+        var helper = function(
+            [["builtin": "log", "args": ["${first}|${second}|${third}|${verbose}"]]],
+            parameters: ["first", "second", "third"])
+        helper["options"] = ["verbose": "Print values"]
+        try configure(
+            [
+                "main": function([
+                    [
+                        "command": "/usr/bin/printf", "args": ["%s", #"["--verbose","--other","--"]"#],
+                        "capture": "json", "saveAs": "items",
+                    ],
+                    ["function": "helper", "args": [["spread": "items"]]],
+                    ["function": "helper", "args": [["spread": "items"], "--verbose"]],
+                ])
+            ], functions: ["helper": helper])
+        assertSuccess(try runCM(["main"]), output: "--verbose|--other|--|false\n--verbose|--other|--|true\n")
+    }
+
+    @Test func testInterpolatedHelperOptionIsPositionalAndLiteralUnknownOptionFails() throws {
+        var helper = function(
+            [["builtin": "log", "args": ["${name}|${verbose}"]]], parameters: ["name"])
+        helper["options"] = ["verbose": "Print name"]
+        try configure(
+            ["main": function([["function": "helper", "args": ["--${name}"]]], parameters: ["name"])],
+            functions: ["helper": helper])
+        assertSuccess(try runCM(["main", "verbose"]), output: "--verbose|false\n")
+        try configure(
+            ["main": function([["function": "helper", "args": ["--other", "value"]]])],
+            functions: ["helper": helper])
+        let result = try runCM(["main"])
+        assertFailure(result)
+        #expect(result.stderr.contains("Unknown function option '--other'."))
+    }
+
     @Test func testCaptureTextTrimmedJSONAndStderr() throws {
         try configure([
             "main": function([

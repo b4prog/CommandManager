@@ -11,6 +11,7 @@ struct Runner {
         defer { environment = initialEnvironment }
         var secrets = Set(configuration.settings.map(\.value).filter { !$0.isEmpty })
         guard let function = configuration.entryPoints[name] else { throw CommandError("Unknown function '\(name)'.") }
+        let arguments = arguments.map { RenderedArgument(value: $0, allowsOptionParsing: true) }
         let bindings = try bindArguments(arguments, function: function)
         if function.requireAnyOption && !function.options.keys.contains(where: { bindings[$0] == "true" }) {
             printFunctionHelp(name, function: function)
@@ -23,21 +24,22 @@ struct Runner {
         }
     }
 
-    private func bindArguments(_ arguments: [String], function: FunctionDefinition) throws -> [String: String] {
+    private func bindArguments(_ arguments: [RenderedArgument], function: FunctionDefinition) throws -> [String: String]
+    {
         var bindings = Dictionary(uniqueKeysWithValues: function.options.keys.map { ($0, "false") })
         var positional: [String] = []
         var parseOptions = !function.options.isEmpty
         for argument in arguments {
-            if parseOptions && argument == "--" {
+            if parseOptions && argument.allowsOptionParsing && argument.value == "--" {
                 parseOptions = false
-            } else if parseOptions && argument.hasPrefix("--") {
-                let name = String(argument.dropFirst(2))
+            } else if parseOptions && argument.allowsOptionParsing && argument.value.hasPrefix("--") {
+                let name = String(argument.value.dropFirst(2))
                 guard function.options[name] != nil else {
-                    throw CommandError("Unknown function option '\(argument)'.")
+                    throw CommandError("Unknown function option '\(argument.value)'.")
                 }
                 bindings[name] = "true"
             } else {
-                positional.append(argument)
+                positional.append(argument.value)
             }
         }
         try requireArguments(positional, count: function.parameters.count, target: "Function")
@@ -47,7 +49,7 @@ struct Runner {
     }
 
     private func run(
-        _ name: String, arguments: [String], directory: inout URL, environment: inout [String: String],
+        _ name: String, arguments: [RenderedArgument], directory: inout URL, environment: inout [String: String],
         secrets: inout Set<String>
     ) throws {
         guard let function = configuration.definitions[name] else { throw CommandError("Unknown function '\(name)'.") }
@@ -59,7 +61,7 @@ struct Runner {
             do {
                 guard try step.when?.evaluate(values) ?? true else { continue }
                 let args = try step.args.flatMap { try $0.render(values) }
-                try validateProcessArguments(args)
+                try validateProcessArguments(args.map(\.value))
                 let result = try execute(
                     step, arguments: args, values: values, directory: &functionDirectory, environment: &environment,
                     secrets: &secrets)
@@ -81,13 +83,14 @@ struct Runner {
     }
 
     private func execute(
-        _ step: Step, arguments: [String], values: [String: RuntimeValue], directory: inout URL,
+        _ step: Step, arguments: [RenderedArgument], values: [String: RuntimeValue], directory: inout URL,
         environment: inout [String: String], secrets: inout Set<String>
     ) throws -> RuntimeValue? {
         switch step.target {
         case .command(let executable):
             return try CommandExecutor().execute(
-                executable, arguments: arguments, capture: step.capture, directory: directory, environment: environment,
+                executable, arguments: arguments.map(\.value), capture: step.capture, directory: directory,
+                environment: environment,
                 secrets: secrets)
         case .function(let name):
             try run(name, arguments: arguments, directory: &directory, environment: &environment, secrets: &secrets)
@@ -95,7 +98,8 @@ struct Runner {
         case .builtin(let name):
             guard let builtin = Builtin(rawValue: name) else { throw CommandError("Unknown builtin '\(name)'.") }
             return try BuiltinExecutor().execute(
-                builtin, arguments: arguments, values: values, directory: &directory, environment: &environment,
+                builtin, arguments: arguments.map(\.value), values: values, directory: &directory,
+                environment: &environment,
                 secrets: secrets)
         }
     }
