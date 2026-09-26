@@ -37,20 +37,20 @@ final class CommandExecutionTests: CMTestCase {
         assertFailure(try runCM())
     }
 
-    @Test(
-        .enabled(
-            if: !FileManager.default.fileExists(
-                atPath:
-                    FileManager.default.homeDirectoryForCurrentUser
-                    .appendingPathComponent("Library/Application Support/CommandManager/cm.json").path
-            ), "Run only when no personal configuration exists."))
-    func testMissingDefaultConfigurationExplainsSetup() throws {
-        let result = try runCM(useConfig: false)
-        let output = result.stdout + result.stderr
+    @Test func testMissingDefaultConfigurationExplainsSetup() throws {
+        var environment = ProcessInfo.processInfo.environment
+        environment["HOME"] = directory.path
+        environment["CFFIXED_USER_HOME"] = directory.path
+        let result = try runCM(environment: environment, useConfig: false)
+        assertSuccess(result)
         #expect(result.stdout.hasPrefix("CommandManager 0.4 —"))
-        #expect(output.contains("cm.json"))
-        #expect(output.contains("Application Support"))
-        #expect(!(output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
+        #expect(
+            result.stdout.contains("/\(directory.lastPathComponent)/Library/Application Support/CommandManager/cm.json")
+        )
+        #expect(result.stdout.contains("Configuration file not found."))
+        let failure = try runCM(["main"], environment: environment, useConfig: false)
+        #expect(failure.status == 1)
+        #expect(failure.stderr.contains("Configuration file not found:"))
     }
 
     @Test func testUnknownFunctionAndInternalFunctionCannotRun() throws {
